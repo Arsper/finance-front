@@ -5,8 +5,6 @@ import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
 import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
 import 'package:my_app/helpers/validators.dart';
-// --- ДОБАВЛЕН ИМПОРТ СТАТИСТИКИ ---
-// Убедитесь, что путь правильный (где лежит ваш файл StatisticsPage.dart)
 import 'package:my_app/Pages/StatisticsPage.dart'; 
 
 class TransactionsPage extends StatefulWidget {
@@ -96,7 +94,6 @@ class _TransactionsPageState extends State<TransactionsPage> {
     return {"income": income, "expense": expense.abs()};
   }
 
-  // --- УПРАВЛЕНИЕ КАТЕГОРИЯМИ ---
   void _showCategoryManageDialog({Map<String, dynamic>? existing, Function? onUpdate}) {
     if (existing != null && !_isCategoryEditable(existing)) {
       if (mounted) {
@@ -395,7 +392,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
         ),
         actions: [
           // --- НОВАЯ КНОПКА СТАТИСТИКИ ---
-          IconButton(
+          /*IconButton(
             icon: const Icon(Icons.bar_chart),
             tooltip: 'Статистика',
             onPressed: () {
@@ -409,7 +406,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
                 ),
               );
             },
-          ),
+          ),*/
           // -------------------------------
           
           if (selectedFilterDate != null)
