@@ -1,11 +1,12 @@
 import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
 import 'package:my_app/Pages/login.dart';
 import 'package:my_app/api/DioClient.dart';
-import 'package:my_app/api/data/user.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
+import 'package:my_app/api/url/urlParametrs.dart';
 import 'package:my_app/helpers/validators.dart';
 
 class RegisterPage extends StatefulWidget {
@@ -18,12 +19,19 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage> {
   final _formKey = GlobalKey<FormState>();
   final PageController _pageController = PageController();
+  late final UserRemoteDataSource _dataSource;
 
+  // Контроллеры полей
   final _loginController = TextEditingController();
   final _emailController = TextEditingController();
   final _otpController = TextEditingController();
   final _passController = TextEditingController();
   final _confirmPassController = TextEditingController();
+
+  // Локальные ошибки под полями
+  String? _loginError;
+  String? _emailError;
+  String? _otpError;
 
   int _currentStep = 0;
   final int _totalSteps = 4;
@@ -34,51 +42,78 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _canResend = false;
 
   @override
+  void initState() {
+    super.initState();
+    _dataSource = UserRemoteDataSource(dio: Dioclient.instance);
+  }
+
+  @override
   void dispose() {
     _timer?.cancel();
-    for (var c in [
-      _loginController,
-      _emailController,
-      _otpController,
-      _passController,
-      _confirmPassController,
-    ]) {
-      c.dispose();
-    }
+    _loginController.dispose();
+    _emailController.dispose();
+    _otpController.dispose();
+    _passController.dispose();
+    _confirmPassController.dispose();
     _pageController.dispose();
     super.dispose();
   }
 
-  void _resetToStart() {
-    _timer?.cancel();
-    setState(() {
-      _currentStep = 0;
-      _secondsRemaining = 40;
-      _canResend = false;
-      _loginController.clear();
-      _emailController.clear();
-      _otpController.clear();
-      _passController.clear();
-      _confirmPassController.clear();
-    });
-    _pageController.jumpToPage(0);
+  // --- ЛОГИКА ---
+
+  void _showSnackBar(String message, {required bool isError}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.redAccent : Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _handleBack() {
     if (_currentStep == 0) {
+      // Если мы и так на первом шаге, уходим на страницу логина
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const LoginPage()),
       );
-    } else if (_currentStep == 3) {
-      _resetToStart();
     } else {
-      setState(() => _currentStep--);
-      _pageController.previousPage(
+      // Если мы на шаге 1, 2 или 3 — возвращаемся в самое начало и всё очищаем
+      setState(() {
+        _currentStep = 0;
+        _clearAllFields(); // Вызываем полную очистку
+      });
+
+      _pageController.animateToPage(
+        0,
         duration: const Duration(milliseconds: 400),
         curve: Curves.easeInOutCubic,
       );
     }
+  }
+
+  // Добавь этот метод для полной очистки данных
+  void _clearAllFields() {
+    _loginController.clear();
+    _emailController.clear();
+    _otpController.clear();
+    _passController.clear();
+    _confirmPassController.clear();
+    _clearErrors(); // Твой существующий метод очистки ошибок
+
+    // Останавливаем таймер, если он работал
+    _timer?.cancel();
+    _secondsRemaining = 40;
+    _canResend = false;
+  }
+
+  void _clearErrors() {
+    setState(() {
+      _loginError = null;
+      _emailError = null;
+      _otpError = null;
+    });
   }
 
   void _startTimer() {
@@ -97,60 +132,99 @@ class _RegisterPageState extends State<RegisterPage> {
     });
   }
 
-  void _nextStep() {
-    if (_formKey.currentState!.validate()) {
-      if (_currentStep == 1) _startTimer();
+  Future<void> _nextStep() async {
+    if (!_formKey.currentState!.validate()) return;
 
-      if (_currentStep < _totalSteps - 1) {
+    setState(() => _isLoading = true);
+    _clearErrors();
+
+    try {
+      bool canProceed = false;
+
+      if (_currentStep == 0) {
+        // Шаг 0: Логин (можно добавить проверку на уникальность логина)
+        canProceed = true;
+      } else if (_currentStep == 1) {
+        // Шаг 1: Отправка кода на Email
+        canProceed = await _dataSource.sendRegistrationCode(
+          _emailController.text.trim(),
+        );
+        if (!canProceed) {
+          setState(() => _emailError = "Данная почта уже занята или неверна");
+        }
+      } else if (_currentStep == 2) {
+        // Шаг 2: Проверка кода OTP
+        if (_otpController.text.length < 6) {
+          setState(() => _otpError = "Введите 6-значный код");
+          canProceed = false;
+        } else {
+          canProceed = await _dataSource.verifyRegistrationCode(
+            _emailController.text.trim(),
+            _otpController.text.trim(),
+          );
+          if (!canProceed)
+            setState(() => _otpError = "Неверный или истекший код");
+        }
+      } else if (_currentStep == 3) {
+        // Шаг 3: Финальная регистрация
+        await _submit();
+        return;
+      }
+
+      if (canProceed && mounted) {
+        if (_currentStep == 1) _startTimer();
         setState(() => _currentStep++);
         _pageController.animateToPage(
           _currentStep,
           duration: const Duration(milliseconds: 400),
           curve: Curves.easeInOutCubic,
         );
-      } else {
-        _submit();
-      }
-    }
-  }
-
-  Future<void> _submit() async {
-    if (_otpController.text != "123456") {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Неверный код. Используйте 123456")),
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    try {
-      UserModel newUser = UserModel(
-        login: _loginController.text.trim(),
-        email: _emailController.text.trim(),
-        password: _passController.text,
-      );
-      final dataSource = UserRemoteDataSource(dio: Dioclient.instance);
-      bool success = await dataSource.registerUser(newUser);
-
-      if (success && mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Ошибка: $e")),
-        );
+      String errorMsg = "Ошибка соединения";
+      if (e is DioException && e.response?.data != null) {
+        errorMsg = e.response?.data.toString() ?? errorMsg;
       }
+      _showSnackBar(errorMsg, isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  Future<void> _submit() async {
+    try {
+      final response = await Dioclient.instance.post(
+        UrlParameters.registrationUrl,
+        data: {
+          'login': _loginController.text.trim(),
+          'email': _emailController.text.trim(),
+          'password': _passController.text,
+          'emailCode': _otpController.text
+              .trim(), // Проверь, что в Java поле называется 'code'
+        },
+      );
+
+      if (response.statusCode == 200 && mounted) {
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil('/home', (route) => false);
+      }
+    } on DioException catch (e) {
+      // Выводим текст ошибки от самого сервера
+      final errorMessage = e.response?.data?.toString() ?? "Ошибка сервера";
+      _showSnackBar("Ошибка: $errorMessage", isError: true);
+      debugPrint("Full Error: ${e.response?.data}");
+    } catch (e) {
+      _showSnackBar("Неизвестная ошибка: $e", isError: true);
+    }
+  }
+
+  // --- UI ---
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
       backgroundColor: colorScheme.background,
@@ -173,13 +247,12 @@ class _RegisterPageState extends State<RegisterPage> {
             color: colorScheme.onBackground,
             size: 22,
           ),
-          onPressed: _handleBack,
+          onPressed: _isLoading ? null : _handleBack,
         ),
       ),
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: 8),
             _buildProgressBar(colorScheme),
             Expanded(
               child: Form(
@@ -196,6 +269,8 @@ class _RegisterPageState extends State<RegisterPage> {
                         icon: Icons.person_outline,
                         controller: _loginController,
                         validator: AppValidators.login,
+                        errorText: _loginError,
+                        onChanged: (v) => setState(() => _loginError = null),
                       ),
                       colorScheme,
                     ),
@@ -208,12 +283,14 @@ class _RegisterPageState extends State<RegisterPage> {
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
                         validator: AppValidators.email,
+                        errorText: _emailError,
+                        onChanged: (v) => setState(() => _emailError = null),
                       ),
                       colorScheme,
                     ),
                     _stepWrapper(
                       "Подтверждение",
-                      "Введите 6-значный код. Если письмо не пришло, проверьте папку «Спам».",
+                      "Введите 6-значный код из письма.",
                       _buildOtpSection(colorScheme),
                       colorScheme,
                     ),
@@ -221,6 +298,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       "Пароль",
                       "Установите пароль для защиты аккаунта.",
                       Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           CustomerEdit(
                             label: "Пароль",
@@ -228,6 +306,7 @@ class _RegisterPageState extends State<RegisterPage> {
                             isPassword: true,
                             controller: _passController,
                             validator: AppValidators.password,
+                            onChanged: (v) => setState(() {}),
                           ),
                           const SizedBox(height: 16),
                           CustomerEdit(
@@ -239,6 +318,55 @@ class _RegisterPageState extends State<RegisterPage> {
                               v,
                               _passController.text,
                             ),
+                            onChanged: (v) => setState(() {}),
+                          ),
+                          const SizedBox(height: 20),
+                          // Блок требований перенесен под повтор пароля
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceVariant.withOpacity(
+                                0.3,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Column(
+                              children: [
+                                _buildPasswordRequirement(
+                                  "Минимум 6 символов",
+                                  AppValidators.hasMinLength(
+                                    _passController.text,
+                                  ),
+                                  colorScheme,
+                                ),
+                                _buildPasswordRequirement(
+                                  "Одна заглавная буква",
+                                  AppValidators.hasUppercase(
+                                    _passController.text,
+                                  ),
+                                  colorScheme,
+                                ),
+                                _buildPasswordRequirement(
+                                  "Одна строчная буква",
+                                  AppValidators.hasLowercase(
+                                    _passController.text,
+                                  ),
+                                  colorScheme,
+                                ),
+                                _buildPasswordRequirement(
+                                  "Одна цифра",
+                                  AppValidators.hasDigit(_passController.text),
+                                  colorScheme,
+                                ),
+                                _buildPasswordRequirement(
+                                  "Один спецсимвол (!@#\$...)",
+                                  AppValidators.hasSpecialChar(
+                                    _passController.text,
+                                  ),
+                                  colorScheme,
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -248,7 +376,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
               ),
             ),
-            _buildBottomNav(colorScheme, isDark),
+            _buildBottomNav(colorScheme),
           ],
         ),
       ),
@@ -267,7 +395,9 @@ class _RegisterPageState extends State<RegisterPage> {
               margin: const EdgeInsets.symmetric(horizontal: 4),
               height: 4,
               decoration: BoxDecoration(
-                color: isActive ? colorScheme.primary : colorScheme.outlineVariant,
+                color: isActive
+                    ? colorScheme.primary
+                    : colorScheme.outlineVariant,
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
@@ -277,7 +407,12 @@ class _RegisterPageState extends State<RegisterPage> {
     );
   }
 
-  Widget _stepWrapper(String title, String subtitle, Widget child, ColorScheme colorScheme) {
+  Widget _stepWrapper(
+    String title,
+    String subtitle,
+    Widget child,
+    ColorScheme colorScheme,
+  ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -285,11 +420,7 @@ class _RegisterPageState extends State<RegisterPage> {
         children: [
           Text(
             title,
-            style: TextStyle(
-              fontSize: 34,
-              fontWeight: FontWeight.bold,
-              color: colorScheme.onBackground,
-            ),
+            style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
           Text(
@@ -316,35 +447,40 @@ class _RegisterPageState extends State<RegisterPage> {
           decoration: BoxDecoration(
             color: colorScheme.surface,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
+            border: Border.all(
+              color: _otpError != null
+                  ? Colors.redAccent
+                  : colorScheme.outlineVariant.withOpacity(0.5),
+            ),
           ),
           child: Stack(
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: List.generate(6, (index) {
-                  String char = "";
-                  if (_otpController.text.length > index) {
-                    char = _otpController.text[index];
-                  }
+                  // Логика маскировки:
+                  bool hasCharacter = _otpController.text.length > index;
+
                   return Container(
                     width: 45,
                     height: 55,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: Colors.transparent,
                       border: Border.all(
-                        color: char.isNotEmpty ? colorScheme.primary : colorScheme.outline,
+                        color: hasCharacter
+                            ? colorScheme.primary
+                            : colorScheme.outline,
                         width: 2,
                       ),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      char,
-                      style: TextStyle(
+                      hasCharacter
+                          ? "●"
+                          : "", // Показываем точку, если символ введен
+                      style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
-                        color: colorScheme.onSurface,
                       ),
                     ),
                   );
@@ -356,18 +492,28 @@ class _RegisterPageState extends State<RegisterPage> {
                   child: TextFormField(
                     controller: _otpController,
                     autofocus: true,
+                    // Важно оставить keyboardType number, чтобы вызывалась цифровая клавиатура
                     keyboardType: TextInputType.number,
                     inputFormatters: [
                       FilteringTextInputFormatter.digitsOnly,
                       LengthLimitingTextInputFormatter(6),
                     ],
-                    onChanged: (v) => setState(() {}),
+                    onChanged: (v) {
+                      setState(() => _otpError = null);
+                    },
                   ),
                 ),
               ),
             ],
           ),
         ),
+        if (_otpError != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            _otpError!,
+            style: const TextStyle(color: Colors.redAccent, fontSize: 14),
+          ),
+        ],
         const SizedBox(height: 24),
         _buildTimerSection(colorScheme),
       ],
@@ -379,15 +525,15 @@ class _RegisterPageState extends State<RegisterPage> {
       children: [
         Text(
           _canResend ? "Не получили код?" : "Повторная отправка через:",
-          style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 14),
+          style: const TextStyle(fontSize: 14),
         ),
         const SizedBox(height: 12),
         _canResend
             ? TextButton(
-                onPressed: () {
+                onPressed: () async {
                   _startTimer();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Код отправлен повторно")),
+                  await _dataSource.sendRegistrationCode(
+                    _emailController.text.trim(),
                   );
                 },
                 child: Text(
@@ -405,14 +551,43 @@ class _RegisterPageState extends State<RegisterPage> {
                   fontSize: 24,
                   fontWeight: FontWeight.w800,
                   color: colorScheme.primary,
-                  letterSpacing: 1.1,
                 ),
               ),
       ],
     );
   }
 
-  Widget _buildBottomNav(ColorScheme colorScheme, bool isDark) {
+  Widget _buildPasswordRequirement(
+    String label,
+    bool isMet,
+    ColorScheme colorScheme,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Icon(
+            isMet ? Icons.check_circle : Icons.circle_outlined,
+            size: 16,
+            color: isMet
+                ? Colors.green
+                : colorScheme.onSurfaceVariant.withOpacity(0.5),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: isMet ? Colors.green : colorScheme.onSurfaceVariant,
+              decoration: isMet ? TextDecoration.lineThrough : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNav(ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
       child: Column(
@@ -439,8 +614,13 @@ class _RegisterPageState extends State<RegisterPage> {
                     ),
                   )
                 : Text(
-                    _currentStep == _totalSteps - 1 ? "Зарегистрироваться" : "Продолжить",
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    _currentStep == _totalSteps - 1
+                        ? "Зарегистрироваться"
+                        : "Продолжить",
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
           ),
           if (_currentStep == 0) ...[
@@ -453,7 +633,10 @@ class _RegisterPageState extends State<RegisterPage> {
               child: Text.rich(
                 TextSpan(
                   text: "Уже есть аккаунт? ",
-                  style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 15),
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 15,
+                  ),
                   children: [
                     TextSpan(
                       text: "Войти",

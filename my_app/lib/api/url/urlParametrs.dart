@@ -2,8 +2,13 @@ class UrlParameters {
   static String getFullUrl(String url) =>
       'http://localhost:8080/api/$url';
 
-  static String registrationUrl = getFullUrl('auth/register');
+  static String registerSendCode = getFullUrl('auth/send-code');
+  static String verifyCode = getFullUrl('auth/verify-code-step');
+  static String registrationUrl = getFullUrl('auth/register-final');
   static String loginUrl = getFullUrl('auth/login');
+
+  static String forgotSendCode = getFullUrl('auth/forgot-password/send-code');
+  static String forgotReset = getFullUrl('auth/forgot-password/reset');
 
   static String currenciesUrl = getFullUrl('currencies');
   static String billsUrl = getFullUrl('bills');

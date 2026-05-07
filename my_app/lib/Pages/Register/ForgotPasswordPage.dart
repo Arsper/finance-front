@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
 import 'package:my_app/Pages/login.dart';
+import 'package:my_app/api/DioClient.dart';
+import 'package:my_app/api/sources/remoteDataSource.dart';
 import 'package:my_app/helpers/validators.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
@@ -16,13 +19,20 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final _formKey = GlobalKey<FormState>();
   final PageController _pageController = PageController();
 
+  final UserRemoteDataSource _dataSource = UserRemoteDataSource(
+    dio: Dioclient.instance,
+  );
+
   final _emailController = TextEditingController();
   final _otpController = TextEditingController();
   final _passController = TextEditingController();
   final _confirmPassController = TextEditingController();
 
+  String? _emailError;
+  String? _otpError;
+
   int _currentStep = 0;
-  final int _totalSteps = 3; 
+  final int _totalSteps = 3;
   bool _isLoading = false;
 
   Timer? _timer;
@@ -40,90 +50,219 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     super.dispose();
   }
 
-  void _handleBack() {
-    // Если мы не на первом шаге, просто возвращаемся назад по PageView
-    if (_currentStep > 0) {
-      setState(() => _currentStep--);
-      _pageController.previousPage(
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeInOutCubic,
-      );
-    } else {
-      // Если на первом — в логин
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const LoginPage()),
-        (route) => false,
-      );
-    }
-  }
+  // --- ЛОГИКА ---
 
-  void _startTimer() {
-    setState(() {
-      _secondsRemaining = 40;
-      _canResend = false;
-    });
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_secondsRemaining == 0) {
-        setState(() => _canResend = true);
-        timer.cancel();
-      } else {
-        setState(() => _secondsRemaining--);
-      }
-    });
-  }
+  Future<void> _nextStep() async {
+    if (!_formKey.currentState!.validate()) return;
 
-  void _nextStep() {
-    if (_formKey.currentState!.validate()) {
-      if (_currentStep == 0) _startTimer(); 
+    setState(() => _isLoading = true);
 
-      if (_currentStep < _totalSteps - 1) {
-        setState(() => _currentStep++);
-        _pageController.animateToPage(
-          _currentStep,
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeInOutCubic,
+    try {
+      if (_currentStep == 0) {
+        setState(() => _emailError = null);
+        final success = await _dataSource.sendForgotPasswordCode(
+          _emailController.text.trim(),
         );
-      } else {
-        _submitNewPassword();
+        if (success) {
+          _animateToStep(1);
+          _startTimer();
+        } else {
+          setState(() => _emailError = "Пользователь с такой почтой не найден");
+        }
+      } else if (_currentStep == 1) {
+        setState(() => _otpError = null);
+
+        if (_otpController.text.length < 6) {
+          setState(() => _otpError = "Введите 6-значный код");
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        final isValid = await _dataSource.verifyRegistrationCode(
+          _emailController.text.trim(),
+          _otpController.text,
+        );
+
+        if (isValid) {
+          _animateToStep(2);
+        } else {
+          setState(() => _otpError = "Неверный или истекший код");
+        }
+      } else if (_currentStep == 2) {
+        await _submitNewPassword();
       }
+    } catch (e) {
+      String errorMsg = "Ошибка соединения";
+      if (e is DioException && e.response?.data != null) {
+        errorMsg = e.response?.data.toString() ?? errorMsg;
+      }
+      _showSnackBar(errorMsg, isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _submitNewPassword() async {
-    setState(() => _isLoading = true);
-    // Имитация запроса к API
-    await Future.delayed(const Duration(seconds: 2)); 
-    if (mounted) {
+    final success = await _dataSource.resetPassword(
+      _emailController.text.trim(),
+      _otpController.text,
+      _passController.text,
+    );
+
+    if (success) {
+      _showSnackBar("Пароль успешно изменен!", isError: false);
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LoginPage()),
+          (route) => false,
+        );
+      }
+    } else {
+      _showSnackBar("Ошибка сброса пароля", isError: true);
+    }
+  }
+
+  void _handleBack() {
+    if (_currentStep == 0) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginPage()),
         (route) => false,
       );
+    } else {
+      // При нажатии "назад" на любом этапе сбрасываем всё и идем в начало
+      setState(() {
+        _currentStep = 0;
+        _clearAllFields();
+      });
+
+      _pageController.animateToPage(
+        0,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOutCubic,
+      );
     }
   }
+
+  void _clearAllFields() {
+    _emailController.clear();
+    _otpController.clear();
+    _passController.clear();
+    _confirmPassController.clear();
+    _emailError = null;
+    _otpError = null;
+    _timer?.cancel();
+    _secondsRemaining = 40;
+    _canResend = false;
+  }
+
+  // --- UI COMPONENTS ---
+
+  Widget _buildPasswordRequirement(String label, bool isMet, ColorScheme colorScheme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Icon(
+            isMet ? Icons.check_circle : Icons.circle_outlined,
+            size: 16,
+            color: isMet ? Colors.green : colorScheme.onSurfaceVariant.withOpacity(0.5),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: isMet ? Colors.green : colorScheme.onSurfaceVariant,
+              decoration: isMet ? TextDecoration.lineThrough : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOtpSection(ColorScheme colorScheme) {
+    return Column(
+      children: [
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: _otpError != null ? Colors.redAccent : colorScheme.outlineVariant.withOpacity(0.5),
+            ),
+          ),
+          child: Stack(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: List.generate(6, (index) {
+                  bool hasCharacter = _otpController.text.length > index;
+                  return Container(
+                    width: 45,
+                    height: 55,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: hasCharacter ? colorScheme.primary : colorScheme.outline,
+                        width: 2,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      hasCharacter ? "●" : "",
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                    ),
+                  );
+                }),
+              ),
+              Positioned.fill(
+                child: Opacity(
+                  opacity: 0,
+                  child: TextFormField(
+                    controller: _otpController,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(6),
+                    ],
+                    onChanged: (v) => setState(() => _otpError = null),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_otpError != null) ...[
+          const SizedBox(height: 12),
+          Text(_otpError!, style: const TextStyle(color: Colors.redAccent, fontSize: 14)),
+        ],
+        const SizedBox(height: 24),
+        _buildTimerSection(colorScheme),
+      ],
+    );
+  }
+
+  // --- СТАНДАРТНЫЙ BUILD И ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ---
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    
+
     return Scaffold(
       backgroundColor: colorScheme.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        title: Text(
-          "Восстановление",
-          style: TextStyle(fontSize: 18, color: colorScheme.onBackground),
-        ),
+        title: const Text("Восстановление", style: TextStyle(fontSize: 18)),
         leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back_ios_new,
-            color: colorScheme.onBackground,
-            size: 20,
-          ),
-          onPressed: _handleBack,
+          icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+          onPressed: _isLoading ? null : _handleBack,
         ),
       ),
       body: SafeArea(
@@ -145,21 +284,22 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                         icon: Icons.alternate_email,
                         controller: _emailController,
                         validator: AppValidators.email,
+                        errorText: _emailError,
+                        onChanged: (v) => setState(() => _emailError = null),
                       ),
                       colorScheme,
                     ),
                     _stepWrapper(
                       "Подтверждение",
                       "Введите код из письма.",
-                      Column(
-                        children: [const SizedBox(height: 20), _buildOtpCard(colorScheme)],
-                      ),
+                      _buildOtpSection(colorScheme),
                       colorScheme,
                     ),
                     _stepWrapper(
                       "Новый пароль",
                       "Придумайте сложный пароль.",
                       Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           CustomerEdit(
                             label: "Новый пароль",
@@ -167,6 +307,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                             isPassword: true,
                             controller: _passController,
                             validator: AppValidators.password,
+                            onChanged: (v) => setState(() {}),
                           ),
                           const SizedBox(height: 16),
                           CustomerEdit(
@@ -174,9 +315,24 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                             icon: Icons.shield_outlined,
                             isPassword: true,
                             controller: _confirmPassController,
-                            validator: (v) => AppValidators.confirmPass(
-                              v,
-                              _passController.text,
+                            validator: (v) => AppValidators.confirmPass(v, _passController.text),
+                            onChanged: (v) => setState(() {}),
+                          ),
+                          const SizedBox(height: 20),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceVariant.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Column(
+                              children: [
+                                _buildPasswordRequirement("Минимум 6 символов", AppValidators.hasMinLength(_passController.text), colorScheme),
+                                _buildPasswordRequirement("Одна заглавная буква", AppValidators.hasUppercase(_passController.text), colorScheme),
+                                _buildPasswordRequirement("Одна строчная буква", AppValidators.hasLowercase(_passController.text), colorScheme),
+                                _buildPasswordRequirement("Одна цифра", AppValidators.hasDigit(_passController.text), colorScheme),
+                                _buildPasswordRequirement("Один спецсимвол (!@#\$...)", AppValidators.hasSpecialChar(_passController.text), colorScheme),
+                              ],
                             ),
                           ),
                         ],
@@ -194,68 +350,39 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     );
   }
 
-  Widget _buildOtpCard(ColorScheme colorScheme) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
-      ),
-      child: Column(
-        children: [
-          Stack(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: List.generate(6, (index) {
-                  String char = _otpController.text.length > index
-                      ? _otpController.text[index]
-                      : "";
-                  return Container(
-                    width: 42,
-                    height: 50,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: char.isNotEmpty ? colorScheme.primary : colorScheme.outline,
-                        width: 2,
-                      ),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      char,
-                      style: TextStyle(
-                        fontSize: 20,
-                        color: colorScheme.onSurface,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  );
-                }),
-              ),
-              Positioned.fill(
-                child: Opacity(
-                  opacity: 0,
-                  child: TextFormField(
-                    controller: _otpController,
-                    autofocus: true,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(6),
-                    ],
-                    onChanged: (v) => setState(() {}),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          _buildTimerSection(colorScheme),
-        ],
+  void _animateToStep(int step) {
+    setState(() => _currentStep = step);
+    _pageController.animateToPage(
+      step,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  void _showSnackBar(String message, {required bool isError}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.redAccent : Colors.green,
+        behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  void _startTimer() {
+    setState(() {
+      _secondsRemaining = 40;
+      _canResend = false;
+    });
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_secondsRemaining == 0) {
+        setState(() => _canResend = true);
+        timer.cancel();
+      } else {
+        setState(() => _secondsRemaining--);
+      }
+    });
   }
 
   Widget _buildProgressBar(ColorScheme colorScheme) {
@@ -286,23 +413,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 34,
-              fontWeight: FontWeight.bold,
-              color: colorScheme.onBackground,
-            ),
-          ),
+          Text(title, style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 16,
-              color: colorScheme.onSurfaceVariant,
-              height: 1.5,
-            ),
-          ),
+          Text(subtitle, style: TextStyle(fontSize: 16, color: colorScheme.onSurfaceVariant, height: 1.5)),
           const SizedBox(height: 40),
           child,
         ],
@@ -313,36 +426,19 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   Widget _buildTimerSection(ColorScheme colorScheme) {
     return Column(
       children: [
-        Text(
-          _canResend ? "Не получили код?" : "Повторная отправка через:",
-          style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 14),
-        ),
+        Text(_canResend ? "Не получили код?" : "Повторная отправка через:", style: const TextStyle(fontSize: 14)),
         const SizedBox(height: 12),
         _canResend
             ? TextButton(
-                onPressed: () {
+                onPressed: () async {
                   _startTimer();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Код отправлен повторно")),
-                  );
+                  await _dataSource.sendForgotPasswordCode(_emailController.text);
                 },
-                child: Text(
-                  "Отправить еще раз",
-                  style: TextStyle(
-                    color: colorScheme.primary,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
+                child: Text("Отправить еще раз", style: TextStyle(color: colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 16)),
               )
             : Text(
                 "00:${_secondsRemaining.toString().padLeft(2, '0')}",
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                  color: colorScheme.primary,
-                  letterSpacing: 1.1,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: colorScheme.primary),
               ),
       ],
     );
@@ -351,38 +447,20 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   Widget _buildBottomNav(ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: colorScheme.primary,
-              foregroundColor: colorScheme.onPrimary,
-              minimumSize: const Size(double.infinity, 60),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: colorScheme.primary,
+          foregroundColor: colorScheme.onPrimary,
+          minimumSize: const Size(double.infinity, 60),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        ),
+        onPressed: _isLoading ? null : _nextStep,
+        child: _isLoading
+            ? CircularProgressIndicator(color: colorScheme.onPrimary)
+            : Text(
+                _currentStep == _totalSteps - 1 ? "Сбросить пароль" : "Продолжить",
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-              elevation: 0,
-            ),
-            onPressed: _isLoading ? null : _nextStep,
-            child: _isLoading
-                ? SizedBox(
-                    height: 24,
-                    width: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: colorScheme.onPrimary,
-                    ),
-                  )
-                : Text(
-                    _currentStep == _totalSteps - 1 ? "Сбросить пароль" : "Продолжить",
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-          ),
-        ],
       ),
     );
   }

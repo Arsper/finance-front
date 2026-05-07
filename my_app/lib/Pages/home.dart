@@ -33,7 +33,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Мои Финансы'),
+        title: const Text('Умный кошелёк'),
         centerTitle: true,
         actions: [
           // --- ВОТ ВАШ "ГЛАЗИК" (Кнопка смены темы) ---

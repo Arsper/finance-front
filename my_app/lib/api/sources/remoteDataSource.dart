@@ -4,58 +4,113 @@ import 'package:my_app/api/data/%D1%81ategoryStat.dart';
 import 'package:my_app/api/data/%D1%81urrency.dart';
 import 'package:my_app/api/data/dailyStat.dart';
 import 'package:my_app/api/data/ratePoint.dart';
-import 'package:my_app/api/data/user.dart';
 import 'package:my_app/api/url/urlParametrs.dart';
 import 'package:my_app/helpers/StorageService.dart';
 
-class UserRemoteDataSource{
+class UserRemoteDataSource {
   final Dio dio;
 
-  UserRemoteDataSource({ required this.dio});
+  UserRemoteDataSource({required this.dio});
 
-  Future<bool> loginUser(String pas, String email) async{
-    try{
+  Future<bool> loginUser(String pas, String email) async {
+    try {
       final response = await dio.post(
         UrlParameters.loginUrl,
-        data: {
-          'login': email,    
-          'password': pas,
-        },
+        data: {'login': email, 'password': pas},
       );
 
-      if(response.statusCode == 200){
-        final token = response.data['token']; 
-      
-      if (token != null) {
-        await StorageService.saveToken(token); 
-        return true;
-      }
+      if (response.statusCode == 200) {
+        final token = response.data['token'];
+
+        if (token != null) {
+          await StorageService.saveToken(token);
+          return true;
+        }
       }
       return false;
-    }catch(e){
+    } catch (e) {
       debugPrint('Error logging in: $e');
       return false;
     }
   }
 
-  Future<bool> registerUser(UserModel UserModel) async{
-    try{
+  Future<bool> sendRegistrationCode(String email) async {
+    try {
       final response = await dio.post(
-        UrlParameters.registrationUrl,
-        data: UserModel.toJsonForRegistration()
+        UrlParameters.registerSendCode,
+        queryParameters: {'email': email},
+        options: Options(
+          responseType: ResponseType.plain,
+        ), // Добавьте это, если бэк шлет текст
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> verifyRegistrationCode(String email, String code) async {
+    try {
+      final response = await dio.post(
+        UrlParameters.verifyCode,
+        queryParameters: {'email': email, 'code': code},
+        // Указываем, что сервер возвращает текст, а не JSON
+        options: Options(responseType: ResponseType.plain),
       );
 
-      if(response.statusCode == 200){
-        final token = response.data['token']; 
-      
-      if (token != null) {
-        await StorageService.saveToken(token); 
-        return true;
-      }
-      }
+      // Теперь Dio корректно получит "Код верный" и вернет 200
+      return response.statusCode == 200;
+    } on DioException catch (e) {
+      debugPrint('Ошибка верификации (сервер): ${e.response?.data}');
       return false;
-    }catch(e){
-      debugPrint("Error registering in: $e");
+    } catch (e) {
+      debugPrint('Неизвестная ошибка верификации: $e');
+      return false;
+    }
+  }
+
+  // --- МЕТОДЫ ДЛЯ СБРОСА ПАРОЛЯ ---
+
+  Future<bool> sendForgotPasswordCode(String email) async {
+    try {
+      final response = await dio.post(
+        UrlParameters.forgotSendCode,
+        // Используем queryParameters, так как в Java стоит @RequestParam
+        queryParameters: {'email': email},
+        // Указываем, что ждем обычную строку, если сервер шлет текст
+        options: Options(responseType: ResponseType.plain),
+      );
+
+      // Если бэкенд вернул 200, значит всё успешно
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Ошибка в источнике данных (sendForgotPasswordCode): $e');
+      return false;
+    }
+  }
+
+  Future<bool> resetPassword(
+    String email,
+    String code,
+    String newPassword,
+  ) async {
+    try {
+      final response = await dio.post(
+        UrlParameters.forgotReset,
+        // ИЗМЕНЕНО: используем data вместо queryParameters
+        data: {'email': email, 'code': code, 'newPassword': newPassword},
+        options: Options(
+          responseType: ResponseType.plain,
+          // Убедись, что заголовок установлен (хотя Dio делает это сам для Map)
+          contentType: 'application/json',
+        ),
+      );
+      return response.statusCode == 200;
+    } on DioException catch (e) {
+      debugPrint('Reset Password Error (Dio): ${e.response?.data}');
+      return false;
+    } catch (e) {
+      debugPrint('Reset Password Unknown Error: $e');
       return false;
     }
   }
@@ -95,7 +150,10 @@ class UserRemoteDataSource{
 
   Future<bool> updateWallet(int id, Map<String, dynamic> walletData) async {
     try {
-      final response = await dio.put('${UrlParameters.billsUrl}/$id', data: walletData);
+      final response = await dio.put(
+        '${UrlParameters.billsUrl}/$id',
+        data: walletData,
+      );
       return response.statusCode == 200;
     } catch (e) {
       return false;
@@ -134,7 +192,10 @@ class UserRemoteDataSource{
 
   Future<bool> updateCategory(int id, Map<String, dynamic> data) async {
     try {
-      final response = await dio.put('${UrlParameters.categoriesUrl}/$id', data: data);
+      final response = await dio.put(
+        '${UrlParameters.categoriesUrl}/$id',
+        data: data,
+      );
       return response.statusCode == 200;
     } catch (e) {
       return false;
@@ -155,7 +216,10 @@ class UserRemoteDataSource{
 
   Future<bool> addTransaction(Map<String, dynamic> data) async {
     try {
-      final response = await dio.post(UrlParameters.transactionsUrl, data: data);
+      final response = await dio.post(
+        UrlParameters.transactionsUrl,
+        data: data,
+      );
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
       return false;
@@ -173,7 +237,10 @@ class UserRemoteDataSource{
 
   Future<bool> updateTransaction(int id, Map<String, dynamic> data) async {
     try {
-      final response = await dio.put('${UrlParameters.transactionsUrl}/$id', data: data);
+      final response = await dio.put(
+        '${UrlParameters.transactionsUrl}/$id',
+        data: data,
+      );
       return response.statusCode == 200;
     } catch (e) {
       return false;
@@ -260,12 +327,15 @@ class UserRemoteDataSource{
     }
   }
 
-  Future<Map<String, dynamic>?> calculateAccumulation(double monthlyDeposit, int months) async {
+  Future<Map<String, dynamic>?> calculateAccumulation(
+    double monthlyDeposit,
+    int months,
+  ) async {
     try {
-      final response = await dio.post(UrlParameters.calcAccumulationUrl, data: {
-        "monthlyDeposit": monthlyDeposit,
-        "totalMonths": months
-      });
+      final response = await dio.post(
+        UrlParameters.calcAccumulationUrl,
+        data: {"monthlyDeposit": monthlyDeposit, "totalMonths": months},
+      );
       return response.data;
     } catch (e) {
       debugPrint("Error calculateAccumulation: $e");
@@ -273,21 +343,27 @@ class UserRemoteDataSource{
     }
   }
 
-  Future<Map<String, dynamic>?> calculateDeposit(double targetAmount, String date) async {
+  Future<Map<String, dynamic>?> calculateDeposit(
+    double targetAmount,
+    String date,
+  ) async {
     try {
-      final response = await dio.post(UrlParameters.calcDepositUrl, data: {
-        "targetAmount": targetAmount,
-        "targetDate": date
-      });
+      final response = await dio.post(
+        UrlParameters.calcDepositUrl,
+        data: {"targetAmount": targetAmount, "targetDate": date},
+      );
       return response.data;
     } catch (e) {
       debugPrint("Error calculateDeposit: $e");
       return null;
     }
   }
-  
+
   Future<List<CategoryStat>> getCategoryStats(
-      int billId, DateTime start, DateTime end) async {
+    int billId,
+    DateTime start,
+    DateTime end,
+  ) async {
     try {
       final startStr = start.toIso8601String().split('T')[0];
       final endStr = end.toIso8601String().split('T')[0];
@@ -311,7 +387,10 @@ class UserRemoteDataSource{
   }
 
   Future<List<DailyStat>> getDailyStats(
-      int billId, DateTime start, DateTime end) async {
+    int billId,
+    DateTime start,
+    DateTime end,
+  ) async {
     try {
       final startStr = start.toIso8601String().split('T')[0];
       final endStr = end.toIso8601String().split('T')[0];
@@ -325,9 +404,7 @@ class UserRemoteDataSource{
         },
       );
 
-      return (response.data as List)
-          .map((e) => DailyStat.fromJson(e))
-          .toList();
+      return (response.data as List).map((e) => DailyStat.fromJson(e)).toList();
     } catch (e) {
       debugPrint("Error fetching daily stats: $e");
       return [];
@@ -342,11 +419,7 @@ class UserRemoteDataSource{
     try {
       final response = await dio.get(
         UrlParameters.exchangeConvertUrl,
-        queryParameters: {
-          'from': fromId,
-          'to': toId,
-          'amount': amount,
-        },
+        queryParameters: {'from': fromId, 'to': toId, 'amount': amount},
       );
       // Бэкенд возвращает просто число (BigDecimal), например 95.50
       return (response.data as num).toDouble();
@@ -365,16 +438,10 @@ class UserRemoteDataSource{
     try {
       final response = await dio.get(
         UrlParameters.exchangeHistoryUrl,
-        queryParameters: {
-          'from': fromId,
-          'to': toId,
-          'period': period,
-        },
+        queryParameters: {'from': fromId, 'to': toId, 'period': period},
       );
-      
-      return (response.data as List)
-          .map((e) => RatePoint.fromJson(e))
-          .toList();
+
+      return (response.data as List).map((e) => RatePoint.fromJson(e)).toList();
     } catch (e) {
       debugPrint("Error fetching history: $e");
       return [];

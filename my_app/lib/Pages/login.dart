@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/svg.dart';
 import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
 import 'package:my_app/Pages/Register/ForgotPasswordPage.dart';
 import 'package:my_app/Pages/Register/register.dart';
@@ -20,6 +21,7 @@ class _LoginPageState extends State<LoginPage> {
   final _passController = TextEditingController();
 
   bool _isLoading = false;
+  String? _serverError; // 1. Добавляем переменную для хранения текста ошибки
 
   @override
   void dispose() {
@@ -31,7 +33,12 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+    // Сбрасываем ошибку при новой попытке входа
+    setState(() {
+      _isLoading = true;
+      _serverError = null;
+    });
+
     try {
       final dataSource = UserRemoteDataSource(dio: Dioclient.instance);
       bool success = await dataSource.loginUser(
@@ -40,17 +47,18 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       if (success && mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil('/home', (route) => false);
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Ошибка входа. Проверьте логин и пароль.")),
+        // 2. Вместо SnackBar устанавливаем текст в переменную
+        setState(
+          () => _serverError = "Ошибка входа. Проверьте логин и пароль.",
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Ошибка сети: $e")),
-        );
+        setState(() => _serverError = "Ошибка сети. Попробуйте позже.");
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -59,28 +67,24 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Получаем текущую тему и цветовую схему
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
 
-    // Адаптивные цвета на основе ColorScheme из main.dart
-    final Color bgColor = colorScheme.background;
     final Color textColor = colorScheme.onBackground;
     final Color textMuted = colorScheme.onSurfaceVariant;
     final Color cardBgColor = colorScheme.surface;
     final Color outlineVariant = colorScheme.outlineVariant;
     final Color primaryBtn = colorScheme.primary;
     final Color onPrimaryBtn = colorScheme.onPrimary;
-
-    // Цвет для социальных кнопок (чуть светлее/темнее основного фона)
-    final Color socialBtnBg = isDark ? const Color(0xFF37333D) : Colors.grey.shade100;
+    final Color socialBtnBg = isDark
+        ? const Color(0xFF37333D)
+        : Colors.grey.shade100;
 
     return Scaffold(
-      backgroundColor: bgColor,
+      backgroundColor: colorScheme.background,
       body: Stack(
         children: [
-          // 1. Декоративный неоновый фон
           _buildBlurCircle(
             top: -150,
             right: -100,
@@ -91,8 +95,6 @@ class _LoginPageState extends State<LoginPage> {
             left: -100,
             color: colorScheme.secondary.withOpacity(isDark ? 0.08 : 0.04),
           ),
-
-          // 2. Основной контент
           SafeArea(
             child: Center(
               child: SingleChildScrollView(
@@ -109,12 +111,9 @@ class _LoginPageState extends State<LoginPage> {
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
                           color: textColor,
-                          letterSpacing: -0.6,
                         ),
                       ),
                       const SizedBox(height: 32),
-
-                      // Главная карточка
                       Container(
                         padding: const EdgeInsets.all(24.0),
                         decoration: BoxDecoration(
@@ -122,15 +121,7 @@ class _LoginPageState extends State<LoginPage> {
                           borderRadius: BorderRadius.circular(24),
                           border: Border.all(
                             color: outlineVariant.withOpacity(0.3),
-                            width: 1,
                           ),
-                          boxShadow: isDark ? [] : [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
-                            )
-                          ],
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -141,6 +132,10 @@ class _LoginPageState extends State<LoginPage> {
                               controller: _loginController,
                               validator: AppValidators.login,
                               textInputAction: TextInputAction.next,
+                              onChanged: (_) {
+                                if (_serverError != null)
+                                  setState(() => _serverError = null);
+                              },
                             ),
                             const SizedBox(height: 20),
                             CustomerEdit(
@@ -149,26 +144,31 @@ class _LoginPageState extends State<LoginPage> {
                               controller: _passController,
                               isPassword: true,
                               validator: AppValidators.password,
-                              textInputAction: TextInputAction.done,
+                              onChanged: (_) {
+                                if (_serverError != null)
+                                  setState(() => _serverError = null);
+                              },
                             ),
-
-                            // Забыли пароль
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton(
                                 onPressed: () => Navigator.push(
                                   context,
-                                  MaterialPageRoute(builder: (context) => const ForgotPasswordPage()),
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        const ForgotPasswordPage(),
+                                  ),
                                 ),
                                 child: Text(
                                   "Забыли пароль?",
-                                  style: TextStyle(color: textMuted, fontSize: 13),
+                                  style: TextStyle(
+                                    color: textMuted,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ),
                             ),
                             const SizedBox(height: 8),
-
-                            // Кнопка входа
                             SizedBox(
                               width: double.infinity,
                               height: 56,
@@ -176,31 +176,66 @@ class _LoginPageState extends State<LoginPage> {
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: primaryBtn,
                                   foregroundColor: onPrimaryBtn,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
                                 ),
                                 onPressed: _isLoading ? null : _submit,
                                 child: _isLoading
                                     ? SizedBox(
                                         width: 24,
                                         height: 24,
-                                        child: CircularProgressIndicator(strokeWidth: 2.5, color: onPrimaryBtn),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.5,
+                                          color: onPrimaryBtn,
+                                        ),
                                       )
-                                    : const Text("Войти", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                    : const Text(
+                                        "Войти",
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                               ),
                             ),
-                            const SizedBox(height: 24),
 
-                            // Разделитель
+                            // 3. Добавляем виджет вывода ошибки прямо под кнопкой
+                            if (_serverError != null) ...[
+                              const SizedBox(height: 16),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                  horizontal: 16,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.redAccent.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.redAccent.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Text(
+                                  _serverError!,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.redAccent,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+
+                            const SizedBox(height: 24),
                             _buildDivider(textMuted, outlineVariant),
                             const SizedBox(height: 24),
-
-                            // Социальные кнопки
                             Row(
                               children: [
                                 Expanded(
                                   child: _buildSocialButton(
-                                    logoUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBWTnknpJ8kQYbDp-DXGhVueDNEiFuWKwxsLLNM4K16t6R3azHq8gkqCepFHC-ECy6VgY-yVxQaECw54h3P_Jk98xkR29pKeEatafN9RNv1TcAda12zJWDLRO0niNtAJHk6xFd48mz6-COrxwGNB5yryikFiqKgGFYYr5XxbqIetqDOu2kEjDBn48aRZ3fqoQKg4FTDOck9C68GKw74ZedZfKvcqZCQLt-wckBhYDYLmIEJEIzA5yf953CwjP00YMdJzZjzZlz_DW0",
+                                    assetPath: 'assets/icons/google.svg',
                                     title: "Google",
                                     bgColor: socialBtnBg,
                                     textColor: textColor,
@@ -210,12 +245,15 @@ class _LoginPageState extends State<LoginPage> {
                                 const SizedBox(width: 16),
                                 Expanded(
                                   child: _buildSocialButton(
-                                    logoUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBqqMVyLTNwgVfR_oiEwpJfINq40IWUdzYAobe7zWjNs_QMuNabJ_TEKOlYqqblXxGZeQgE68Tm9COAxduviVXH28-R48-iU4Sx5omelDTjDvi8STpz47wMAZvhBmw4T2No75bX-n_Is2t0tbt2OcrgN0M0YS-T2KsKShtXqftgSt6JAAOENhbaTdLNFlAVNK7g0xiJ4eMssPwqjf4Ea3-s8k__n_34sh8quGusXPRa05ULqJRf4vfJ09XieShIqg4PdrnppDy1HP8",
+                                    assetPath: 'assets/icons/apple.svg',
                                     title: "Apple",
                                     bgColor: socialBtnBg,
                                     textColor: textColor,
                                     borderColor: outlineVariant,
-                                    invertLogo: isDark, // Инвертируем только в темной теме
+                                    // Для Apple применяем фильтр цвета в зависимости от темы
+                                    logoColor: isDark
+                                        ? Colors.white
+                                        : Colors.black,
                                   ),
                                 ),
                               ],
@@ -224,17 +262,19 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
                       const SizedBox(height: 24),
-
-                      // Кнопка регистрации
                       TextButton(
                         onPressed: () => Navigator.pushReplacement(
                           context,
-                          MaterialPageRoute(builder: (context) => const RegisterPage()),
+                          MaterialPageRoute(
+                            builder: (context) => const RegisterPage(),
+                          ),
                         ),
                         child: Text(
                           'Нет аккаунта? Зарегистрироваться',
                           style: TextStyle(
-                            color: isDark ? const Color(0xFFD0BCFF) : colorScheme.primary,
+                            color: isDark
+                                ? const Color(0xFFD0BCFF)
+                                : colorScheme.primary,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -252,7 +292,13 @@ class _LoginPageState extends State<LoginPage> {
 
   // --- Вспомогательные методы ---
 
-  Widget _buildBlurCircle({double? top, double? right, double? bottom, double? left, required Color color}) {
+  Widget _buildBlurCircle({
+    double? top,
+    double? right,
+    double? bottom,
+    double? left,
+    required Color color,
+  }) {
     return Positioned(
       top: top,
       right: right,
@@ -283,12 +329,12 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Widget _buildSocialButton({
-    required String logoUrl,
+    required String assetPath,
     required String title,
     required Color bgColor,
     required Color textColor,
     required Color borderColor,
-    bool invertLogo = false,
+    Color? logoColor,
   }) {
     return SizedBox(
       height: 52,
@@ -296,30 +342,35 @@ class _LoginPageState extends State<LoginPage> {
         style: OutlinedButton.styleFrom(
           backgroundColor: bgColor,
           side: BorderSide(color: borderColor.withOpacity(0.4)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           padding: EdgeInsets.zero,
         ),
-        onPressed: () {},
+        onPressed: () {
+          // Здесь будет логика OAuth
+        },
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            ColorFiltered(
-              colorFilter: invertLogo
-                  ? const ColorFilter.matrix([
-                      -1, 0, 0, 0, 255,
-                      0, -1, 0, 0, 255,
-                      0, 0, -1, 0, 255,
-                      0, 0, 0, 1, 0,
-                    ])
-                  : const ColorFilter.mode(Colors.transparent, BlendMode.dst),
-              child: Image.network(
-                logoUrl,
-                width: 20,
-                errorBuilder: (_, __, ___) => Icon(Icons.star, size: 20, color: textColor),
+            SvgPicture.asset(
+              assetPath,
+              width: 22,
+              height: 22,
+              // colorFilter — правильный способ перекрасить SVG в новых версиях пакета
+              colorFilter: logoColor != null
+                  ? ColorFilter.mode(logoColor, BlendMode.srcIn)
+                  : null,
+            ),
+            const SizedBox(width: 12),
+            Text(
+              title,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(width: 10),
-            Text(title, style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w500)),
           ],
         ),
       ),

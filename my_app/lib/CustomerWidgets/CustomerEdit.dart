@@ -8,15 +8,16 @@ class CustomerEdit extends StatefulWidget {
   final TextEditingController? controller;
   final String? Function(String?)? validator;
   
-  // Параметры конфигурации
+  // Добавленные параметры для обработки ошибок
+  final String? errorText;
+  final ValueChanged<String>? onChanged;
+
   final bool isPassword;
   final TextInputType keyboardType;
   final List<TextInputFormatter>? inputFormatters;
   final TextCapitalization textCapitalization;
   final bool readOnly;
   final VoidCallback? onTap;
-  
-  // --- ДОБАВЛЕНО ---
   final TextInputAction? textInputAction; 
 
   const CustomerEdit({
@@ -25,6 +26,8 @@ class CustomerEdit extends StatefulWidget {
     required this.icon,
     this.controller,
     this.validator,
+    this.errorText,
+    this.onChanged,
     this.maxLength = 64,
     this.isPassword = false,
     this.keyboardType = TextInputType.text,
@@ -32,7 +35,6 @@ class CustomerEdit extends StatefulWidget {
     this.textCapitalization = TextCapitalization.none,
     this.readOnly = false,
     this.onTap,
-    // --- ДОБАВЛЕНО ---
     this.textInputAction,
   });
 
@@ -63,11 +65,11 @@ class _CustomerEditState extends State<CustomerEdit> {
       textCapitalization: widget.textCapitalization,
       readOnly: widget.readOnly,
       onTap: widget.onTap,
-      
-      // --- ДОБАВЛЕНО: Передаем параметр в стандартное поле ---
       textInputAction: widget.textInputAction,
 
+      // Вызываем внешний onChanged и внутренний setState для счетчика
       onChanged: (val) {
+        if (widget.onChanged != null) widget.onChanged!(val);
         setState(() {}); 
       },
 
@@ -76,9 +78,10 @@ class _CustomerEditState extends State<CustomerEdit> {
       decoration: InputDecoration(
         labelText: widget.label,
         prefixIcon: Icon(widget.icon),
+        errorText: widget.errorText, // <-- Ключевое изменение: пробрасываем ошибку бэкенда
         border: const OutlineInputBorder(),
         
-        suffix: !widget.isPassword 
+        suffix: (!widget.isPassword && widget.errorText == null) 
           ? Text(
               '${widget.controller?.text.length ?? 0}/${widget.maxLength}',
               style: TextStyle(fontSize: 12, color: theme.hintColor),
