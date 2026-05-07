@@ -33,11 +33,6 @@ class _RegisterPageState extends State<RegisterPage> {
   int _secondsRemaining = 40;
   bool _canResend = false;
 
-  // Цветовая палитра из твоего дизайна
-  final Color bgColor = const Color(0xFF15121B);
-  final Color primaryColor = const Color(0xFFa078ff);
-  final Color inactiveStepColor = const Color(0xFF37333d);
-
   @override
   void dispose() {
     _timer?.cancel();
@@ -69,20 +64,15 @@ class _RegisterPageState extends State<RegisterPage> {
     _pageController.jumpToPage(0);
   }
 
-  // Исправленная логика навигации назад
   void _handleBack() {
     if (_currentStep == 0) {
-      // Если мы на первом шаге, принудительно возвращаемся на логин,
-      // чтобы не было "белого экрана" из-за пустого стека
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const LoginPage()),
       );
     } else if (_currentStep == 3) {
-      // Если на вводе пароля — сбрасываем всё до начала
       _resetToStart();
     } else {
-      // Иначе просто идем на предыдущую страницу PageView
       setState(() => _currentStep--);
       _pageController.previousPage(
         duration: const Duration(milliseconds: 400),
@@ -143,15 +133,14 @@ class _RegisterPageState extends State<RegisterPage> {
       bool success = await dataSource.registerUser(newUser);
 
       if (success && mounted) {
-        Navigator.of(
-          context,
-        ).pushNamedAndRemoveUntil('/home', (route) => false);
+        Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
       }
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Ошибка: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Ошибка: $e")),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -159,25 +148,29 @@ class _RegisterPageState extends State<RegisterPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: bgColor,
+      backgroundColor: colorScheme.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        title: const Text(
+        title: Text(
           "Регистрация",
           style: TextStyle(
             fontSize: 18,
-            color: Colors.white,
+            color: colorScheme.onBackground,
             fontWeight: FontWeight.w500,
           ),
         ),
-        automaticallyImplyLeading: false, // Отключаем дефолтную стрелку
+        automaticallyImplyLeading: false,
         leading: IconButton(
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
-            color: Colors.white,
+            color: colorScheme.onBackground,
             size: 22,
           ),
           onPressed: _handleBack,
@@ -187,7 +180,7 @@ class _RegisterPageState extends State<RegisterPage> {
         child: Column(
           children: [
             const SizedBox(height: 8),
-            _buildProgressBar(),
+            _buildProgressBar(colorScheme),
             Expanded(
               child: Form(
                 key: _formKey,
@@ -204,6 +197,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         controller: _loginController,
                         validator: AppValidators.login,
                       ),
+                      colorScheme,
                     ),
                     _stepWrapper(
                       "Почта",
@@ -215,97 +209,13 @@ class _RegisterPageState extends State<RegisterPage> {
                         keyboardType: TextInputType.emailAddress,
                         validator: AppValidators.email,
                       ),
+                      colorScheme,
                     ),
                     _stepWrapper(
                       "Подтверждение",
                       "Введите 6-значный код. Если письмо не пришло, проверьте папку «Спам».",
-                      GestureDetector(
-                        onTap: () => FocusScope.of(context).requestFocus(
-                          FocusNode(),
-                        ), // Позволяет вернуть фокус при клике
-                        child: Column(
-                          children: [
-                            const SizedBox(height: 20),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 24,
-                                horizontal: 16,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF1d1a23),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Stack(
-                                // Используем Stack, чтобы наложить невидимое поле сверху
-                                children: [
-                                  // 1. Стилизованные ячейки (Визуал)
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceEvenly,
-                                    children: List.generate(6, (index) {
-                                      String char = "";
-                                      if (_otpController.text.length > index) {
-                                        char = _otpController.text[index];
-                                      }
-                                      return Container(
-                                        width: 45,
-                                        height: 55,
-                                        alignment: Alignment.center,
-                                        decoration: BoxDecoration(
-                                          color: Colors.transparent,
-                                          border: Border.all(
-                                            color: char.isNotEmpty
-                                                ? primaryColor
-                                                : Colors.white12,
-                                            width: 2,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          char,
-                                          style: const TextStyle(
-                                            fontSize: 22,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      );
-                                    }),
-                                  ),
-
-                                  // 2. Реальное поле ввода (Скрытое, но активное)
-                                  // Мы растягиваем его на всю высоту Row, чтобы клик попадал по нему
-                                  Positioned.fill(
-                                    child: Opacity(
-                                      opacity: 0,
-                                      child: TextFormField(
-                                        controller: _otpController,
-                                        autofocus: true,
-                                        keyboardType: TextInputType.number,
-                                        // Ограничение ввода только цифрами
-                                        inputFormatters: [
-                                          FilteringTextInputFormatter
-                                              .digitsOnly,
-                                          LengthLimitingTextInputFormatter(6),
-                                        ],
-                                        onChanged: (v) {
-                                          setState(
-                                            () {},
-                                          ); // Перерисовываем ячейки при каждом изменении
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 24),
-                            _buildTimerSection(),
-                          ],
-                        ),
-                      ),
+                      _buildOtpSection(colorScheme),
+                      colorScheme,
                     ),
                     _stepWrapper(
                       "Пароль",
@@ -332,19 +242,20 @@ class _RegisterPageState extends State<RegisterPage> {
                           ),
                         ],
                       ),
+                      colorScheme,
                     ),
                   ],
                 ),
               ),
             ),
-            _buildBottomNav(),
+            _buildBottomNav(colorScheme, isDark),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildProgressBar() {
+  Widget _buildProgressBar(ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       child: Row(
@@ -356,7 +267,7 @@ class _RegisterPageState extends State<RegisterPage> {
               margin: const EdgeInsets.symmetric(horizontal: 4),
               height: 4,
               decoration: BoxDecoration(
-                color: isActive ? primaryColor : inactiveStepColor,
+                color: isActive ? colorScheme.primary : colorScheme.outlineVariant,
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
@@ -366,7 +277,7 @@ class _RegisterPageState extends State<RegisterPage> {
     );
   }
 
-  Widget _stepWrapper(String title, String subtitle, Widget child) {
+  Widget _stepWrapper(String title, String subtitle, Widget child, ColorScheme colorScheme) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -374,18 +285,18 @@ class _RegisterPageState extends State<RegisterPage> {
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 34,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: colorScheme.onBackground,
             ),
           ),
           const SizedBox(height: 12),
           Text(
             subtitle,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
-              color: Colors.white70,
+              color: colorScheme.onSurfaceVariant,
               height: 1.5,
             ),
           ),
@@ -396,12 +307,79 @@ class _RegisterPageState extends State<RegisterPage> {
     );
   }
 
-  Widget _buildTimerSection() {
+  Widget _buildOtpSection(ColorScheme colorScheme) {
+    return Column(
+      children: [
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
+          ),
+          child: Stack(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: List.generate(6, (index) {
+                  String char = "";
+                  if (_otpController.text.length > index) {
+                    char = _otpController.text[index];
+                  }
+                  return Container(
+                    width: 45,
+                    height: 55,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.transparent,
+                      border: Border.all(
+                        color: char.isNotEmpty ? colorScheme.primary : colorScheme.outline,
+                        width: 2,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      char,
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                  );
+                }),
+              ),
+              Positioned.fill(
+                child: Opacity(
+                  opacity: 0,
+                  child: TextFormField(
+                    controller: _otpController,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(6),
+                    ],
+                    onChanged: (v) => setState(() {}),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        _buildTimerSection(colorScheme),
+      ],
+    );
+  }
+
+  Widget _buildTimerSection(ColorScheme colorScheme) {
     return Column(
       children: [
         Text(
           _canResend ? "Не получили код?" : "Повторная отправка через:",
-          style: const TextStyle(color: Colors.white54, fontSize: 14),
+          style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 14),
         ),
         const SizedBox(height: 12),
         _canResend
@@ -415,7 +393,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 child: Text(
                   "Отправить еще раз",
                   style: TextStyle(
-                    color: primaryColor,
+                    color: colorScheme.primary,
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
                   ),
@@ -426,7 +404,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w800,
-                  color: primaryColor,
+                  color: colorScheme.primary,
                   letterSpacing: 1.1,
                 ),
               ),
@@ -434,7 +412,7 @@ class _RegisterPageState extends State<RegisterPage> {
     );
   }
 
-  Widget _buildBottomNav() {
+  Widget _buildBottomNav(ColorScheme colorScheme, bool isDark) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
       child: Column(
@@ -442,8 +420,8 @@ class _RegisterPageState extends State<RegisterPage> {
         children: [
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
-              foregroundColor: Colors.white,
+              backgroundColor: colorScheme.primary,
+              foregroundColor: colorScheme.onPrimary,
               minimumSize: const Size(double.infinity, 60),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
@@ -452,22 +430,17 @@ class _RegisterPageState extends State<RegisterPage> {
             ),
             onPressed: _isLoading ? null : _nextStep,
             child: _isLoading
-                ? const SizedBox(
+                ? SizedBox(
                     height: 24,
                     width: 24,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Colors.white,
+                      color: colorScheme.onPrimary,
                     ),
                   )
                 : Text(
-                    _currentStep == _totalSteps - 1
-                        ? "Зарегистрироваться"
-                        : "Продолжить",
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    _currentStep == _totalSteps - 1 ? "Зарегистрироваться" : "Продолжить",
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
           ),
           if (_currentStep == 0) ...[
@@ -477,15 +450,15 @@ class _RegisterPageState extends State<RegisterPage> {
                 context,
                 MaterialPageRoute(builder: (context) => const LoginPage()),
               ),
-              child: const Text.rich(
+              child: Text.rich(
                 TextSpan(
                   text: "Уже есть аккаунт? ",
-                  style: TextStyle(color: Colors.white60, fontSize: 15),
+                  style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 15),
                   children: [
                     TextSpan(
                       text: "Войти",
                       style: TextStyle(
-                        color: Colors.white,
+                        color: colorScheme.onSurface,
                         fontWeight: FontWeight.bold,
                       ),
                     ),

@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
 import 'package:my_app/Pages/login.dart';
-import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/helpers/validators.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
@@ -15,7 +14,6 @@ class ForgotPasswordPage extends StatefulWidget {
 
 class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final _formKey = GlobalKey<FormState>();
-  // Начинаем с 0, но это будет шаг с Email
   final PageController _pageController = PageController();
 
   final _emailController = TextEditingController();
@@ -24,29 +22,39 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final _confirmPassController = TextEditingController();
 
   int _currentStep = 0;
-  final int _totalSteps = 3; // Почта, OTP, Пароль
+  final int _totalSteps = 3; 
   bool _isLoading = false;
 
   Timer? _timer;
   int _secondsRemaining = 40;
   bool _canResend = false;
 
-  final Color bgColor = const Color(0xFF15121B);
-  final Color primaryColor = const Color(0xFFa078ff);
-  final Color inactiveStepColor = const Color(0xFF37333d);
-
   @override
   void dispose() {
     _timer?.cancel();
     _pageController.dispose();
+    _emailController.dispose();
+    _otpController.dispose();
+    _passController.dispose();
+    _confirmPassController.dispose();
     super.dispose();
   }
 
   void _handleBack() {
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (context) => const LoginPage()),
-      (route) => false,
-    );
+    // Если мы не на первом шаге, просто возвращаемся назад по PageView
+    if (_currentStep > 0) {
+      setState(() => _currentStep--);
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOutCubic,
+      );
+    } else {
+      // Если на первом — в логин
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+        (route) => false,
+      );
+    }
   }
 
   void _startTimer() {
@@ -67,7 +75,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
   void _nextStep() {
     if (_formKey.currentState!.validate()) {
-      if (_currentStep == 0) _startTimer(); // Запуск таймера после ввода Email
+      if (_currentStep == 0) _startTimer(); 
 
       if (_currentStep < _totalSteps - 1) {
         setState(() => _currentStep++);
@@ -83,9 +91,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   }
 
   Future<void> _submitNewPassword() async {
-    // Здесь ваша логика API для сброса пароля
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(seconds: 2)); // Имитация
+    // Имитация запроса к API
+    await Future.delayed(const Duration(seconds: 2)); 
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginPage()),
@@ -96,20 +104,23 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    
     return Scaffold(
-      backgroundColor: bgColor,
+      backgroundColor: colorScheme.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        title: const Text(
+        title: Text(
           "Восстановление",
-          style: TextStyle(fontSize: 18, color: Colors.white),
+          style: TextStyle(fontSize: 18, color: colorScheme.onBackground),
         ),
         leading: IconButton(
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
-            color: Colors.white,
+            color: colorScheme.onBackground,
             size: 20,
           ),
           onPressed: _handleBack,
@@ -118,7 +129,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       body: SafeArea(
         child: Column(
           children: [
-            _buildProgressBar(),
+            _buildProgressBar(colorScheme),
             Expanded(
               child: Form(
                 key: _formKey,
@@ -126,7 +137,6 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                   controller: _pageController,
                   physics: const NeverScrollableScrollPhysics(),
                   children: [
-                    // Шаги (Email, OTP, Password) остаются такими же
                     _stepWrapper(
                       "Почта",
                       "Введите email, привязанный к вашему аккаунту.",
@@ -136,13 +146,15 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                         controller: _emailController,
                         validator: AppValidators.email,
                       ),
+                      colorScheme,
                     ),
                     _stepWrapper(
                       "Подтверждение",
                       "Введите код из письма.",
                       Column(
-                        children: [const SizedBox(height: 20), _buildOtpCard()],
+                        children: [const SizedBox(height: 20), _buildOtpCard(colorScheme)],
                       ),
+                      colorScheme,
                     ),
                     _stepWrapper(
                       "Новый пароль",
@@ -169,25 +181,26 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                           ),
                         ],
                       ),
+                      colorScheme,
                     ),
                   ],
                 ),
               ),
             ),
-            _buildBottomNav(), // Теперь вызывается правильный метод
+            _buildBottomNav(colorScheme),
           ],
         ),
       ),
     );
   }
 
-  // Виджет карточки OTP из предыдущего шага
-  Widget _buildOtpCard() {
+  Widget _buildOtpCard(ColorScheme colorScheme) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: const Color(0xFF1d1a23),
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
       ),
       child: Column(
         children: [
@@ -205,16 +218,16 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       border: Border.all(
-                        color: char.isNotEmpty ? primaryColor : Colors.white12,
+                        color: char.isNotEmpty ? colorScheme.primary : colorScheme.outline,
                         width: 2,
                       ),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
                       char,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 20,
-                        color: Colors.white,
+                        color: colorScheme.onSurface,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -239,13 +252,13 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             ],
           ),
           const SizedBox(height: 24),
-          _buildTimerSection(),
+          _buildTimerSection(colorScheme),
         ],
       ),
     );
   }
 
-  Widget _buildProgressBar() {
+  Widget _buildProgressBar(ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       child: Row(
@@ -257,7 +270,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
               margin: const EdgeInsets.symmetric(horizontal: 4),
               height: 4,
               decoration: BoxDecoration(
-                color: isActive ? primaryColor : inactiveStepColor,
+                color: isActive ? colorScheme.primary : colorScheme.outlineVariant,
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
@@ -267,7 +280,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     );
   }
 
-  Widget _stepWrapper(String title, String subtitle, Widget child) {
+  Widget _stepWrapper(String title, String subtitle, Widget child, ColorScheme colorScheme) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -275,18 +288,18 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 34,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: colorScheme.onBackground,
             ),
           ),
           const SizedBox(height: 12),
           Text(
             subtitle,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
-              color: Colors.white70,
+              color: colorScheme.onSurfaceVariant,
               height: 1.5,
             ),
           ),
@@ -297,12 +310,12 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     );
   }
 
-  Widget _buildTimerSection() {
+  Widget _buildTimerSection(ColorScheme colorScheme) {
     return Column(
       children: [
         Text(
           _canResend ? "Не получили код?" : "Повторная отправка через:",
-          style: const TextStyle(color: Colors.white54, fontSize: 14),
+          style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 14),
         ),
         const SizedBox(height: 12),
         _canResend
@@ -316,7 +329,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                 child: Text(
                   "Отправить еще раз",
                   style: TextStyle(
-                    color: primaryColor,
+                    color: colorScheme.primary,
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
                   ),
@@ -327,7 +340,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w800,
-                  color: primaryColor,
+                  color: colorScheme.primary,
                   letterSpacing: 1.1,
                 ),
               ),
@@ -335,7 +348,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     );
   }
 
-  Widget _buildBottomNav() {
+  Widget _buildBottomNav(ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
       child: Column(
@@ -343,8 +356,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         children: [
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
-              foregroundColor: Colors.white,
+              backgroundColor: colorScheme.primary,
+              foregroundColor: colorScheme.onPrimary,
               minimumSize: const Size(double.infinity, 60),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
@@ -353,25 +366,22 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             ),
             onPressed: _isLoading ? null : _nextStep,
             child: _isLoading
-                ? const SizedBox(
+                ? SizedBox(
                     height: 24,
                     width: 24,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Colors.white,
+                      color: colorScheme.onPrimary,
                     ),
                   )
                 : Text(
-                    _currentStep == _totalSteps - 1
-                        ? "Зарегистрироваться"
-                        : "Продолжить",
+                    _currentStep == _totalSteps - 1 ? "Сбросить пароль" : "Продолжить",
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
           ),
-          if (_currentStep == 0) ...[const SizedBox(height: 20)],
         ],
       ),
     );

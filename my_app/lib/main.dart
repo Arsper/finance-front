@@ -9,6 +9,19 @@ import 'package:my_app/helpers/StorageService.dart';
 // Он должен быть объявлен вне классов, чтобы был доступен из других файлов
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+// Тот самый сочный фиолетовый (Vibrant Purple)
+const Color primaryAccent = Color(0xFF8B5CF6);
+const Color onPrimaryColor = Colors.white;
+
+// Темная тема
+const Color darkBg = Color(0xFF0F0B15); // Сделал чуть глубже (темнее)
+const Color darkCard = Color(0xFF1A1622);
+const Color darkOutline = Color(0xFF37333D);
+
+// Светлая тема
+const Color lightBg = Color(0xFFF9FAFB);
+const Color lightOutline = Color(0xFFE5E7EB);
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ru', null);
@@ -17,10 +30,7 @@ void main() async {
   final String? token = StorageService.getToken();
   final String savedTheme = StorageService.getThemeMode();
 
-  runApp(MyApp(
-    isAuth: token != null,
-    savedTheme: savedTheme,
-  ));
+  runApp(MyApp(isAuth: token != null, savedTheme: savedTheme));
 }
 
 class MyApp extends StatefulWidget {
@@ -60,68 +70,87 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       _themeMode = mode;
     });
-    
+
     String themeString;
-    if (mode == ThemeMode.light) themeString = 'light';
-    else if (mode == ThemeMode.dark) themeString = 'dark';
-    else themeString = 'system';
-    
+    if (mode == ThemeMode.light)
+      themeString = 'light';
+    else if (mode == ThemeMode.dark)
+      themeString = 'dark';
+    else
+      themeString = 'system';
+
     StorageService.setThemeMode(themeString);
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      // 2. ПОДКЛЮЧАЕМ КЛЮЧ СЮДА
-      navigatorKey: navigatorKey, 
-      
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
-      title: 'Finance App',
-      themeMode: _themeMode, 
+      themeMode: _themeMode,
 
+      // --- СВЕТЛАЯ ТЕМА (Насыщенная) ---
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          brightness: Brightness.light,
+        colorScheme: ColorScheme.light(
+          primary: primaryAccent, // Явный сочный цвет
+          onPrimary: onPrimaryColor,
+          secondary: const Color(0xFF7C3AED),
+          surface: Colors.white,
+          background: lightBg,
+          outlineVariant: lightOutline,
         ),
-        scaffoldBackgroundColor: Colors.white,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.deepPurple,
-          foregroundColor: Colors.white,
-        ),
-        cardTheme: const CardThemeData(
+        cardTheme: CardThemeData(
           color: Colors.white,
-          elevation: 2,
+          elevation: 2, // Добавил небольшую тень для сочности
+          shadowColor: primaryAccent.withOpacity(0.1),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: lightOutline),
+          ),
         ),
       ),
+
+      // --- ТЕМНАЯ ТЕМА (Неоновая) ---
       darkTheme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          brightness: Brightness.dark,
-        ),
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        appBarTheme: AppBarTheme(
-          backgroundColor: Colors.grey[900],
-          foregroundColor: Colors.white,
+        colorScheme: ColorScheme.dark(
+          primary: primaryAccent, // В темноте он будет прямо гореть
+          onPrimary: onPrimaryColor,
+          secondary: const Color(0xFFA78BFA),
+          surface: darkCard,
+          background: darkBg,
+          outlineVariant: darkOutline,
         ),
         cardTheme: CardThemeData(
-          color: Colors.grey[850],
-          elevation: 2,
+          color: darkCard,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: darkOutline.withOpacity(0.5)),
+          ),
         ),
+        // Исправляем DialogThemeData
         dialogTheme: DialogThemeData(
-          backgroundColor: Colors.grey[900],
+          backgroundColor: darkCard,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
           titleTextStyle: const TextStyle(color: Colors.white, fontSize: 20),
-          contentTextStyle: const TextStyle(color: Colors.white70, fontSize: 16),
+          contentTextStyle: const TextStyle(
+            color: Colors.white70,
+            fontSize: 16,
+          ),
         ),
       ),
+
       initialRoute: widget.isAuth ? '/home' : '/login',
       routes: {
         '/login': (context) => const LoginPage(),
         '/register': (context) => const RegisterPage(),
+        '/home': (context) => const HomePage(),
       },
     );
   }
