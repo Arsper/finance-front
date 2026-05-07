@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:my_app/Pages/home.dart';
 import 'package:my_app/Pages/login.dart';
-import 'package:my_app/Pages/register.dart';
+import 'package:my_app/Pages/Register/register.dart';
 import 'package:my_app/helpers/StorageService.dart';
 
 // 1. СОЗДАЕМ ГЛОБАЛЬНЫЙ КЛЮЧ
@@ -122,7 +122,6 @@ class _MyAppState extends State<MyApp> {
       routes: {
         '/login': (context) => const LoginPage(),
         '/register': (context) => const RegisterPage(),
-        '/home': (context) => const HomePage(),
       },
     );
   }
