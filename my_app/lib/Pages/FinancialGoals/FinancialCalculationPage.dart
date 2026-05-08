@@ -28,26 +28,25 @@ class _FinancialCalculationPageState extends State<FinancialCalculationPage> wit
 
   @override
   Widget build(BuildContext context) {
-    // В AppBar текст должен быть контрастным к фону AppBar.
-    // Если фон AppBar фиолетовый (primary), то текст должен быть белым.
+    final theme = Theme.of(context);
+    final isDarkTheme = theme.brightness == Brightness.dark;
     
     return Scaffold(
       appBar: AppBar(
         title: const Text("Финансовые цели"),
-        // Принудительно задаем белый цвет для иконки "назад"
-        iconTheme: const IconThemeData(color: Colors.white),
-        // Принудительно задаем белый цвет для заголовка
-        titleTextStyle: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500),
+        // Явно задаем цвета для AppBar
+        backgroundColor: theme.colorScheme.primary,
+        foregroundColor: Colors.white,
         
         bottom: TabBar(
           controller: _tabController,
-          // ИСПРАВЛЕНИЕ:
-          // Используем белый цвет, чтобы было видно на фиолетовом фоне
-          indicatorColor: Colors.white, 
+          // Явно задаем цвета для вкладок
+          indicatorColor: Colors.white,
           labelColor: Colors.white,
-          // Для неактивных иконок берем белый с прозрачностью (0.7)
           unselectedLabelColor: Colors.white70,
-          
+          // Добавляем стиль для иконок во вкладках
+          labelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          unselectedLabelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.normal),
           tabs: const [
             Tab(text: "Калькулятор", icon: Icon(Icons.calculate)),
             Tab(text: "Мои цели", icon: Icon(Icons.flag)),

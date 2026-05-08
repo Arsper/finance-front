@@ -94,16 +94,31 @@ class _MyAppState extends State<MyApp> {
         useMaterial3: true,
         brightness: Brightness.light,
         colorScheme: ColorScheme.light(
-          primary: primaryAccent, // Явный сочный цвет
+          primary: primaryAccent,
           onPrimary: onPrimaryColor,
           secondary: const Color(0xFF7C3AED),
           surface: Colors.white,
           background: lightBg,
           outlineVariant: lightOutline,
         ),
+        // ИСПРАВЛЕНИЕ: Добавляем стили для AppBar и кнопок
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black87, // Цвет иконок и текста в AppBar
+          elevation: 0,
+          centerTitle: false,
+        ),
+        // Стиль для текстовых кнопок
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: primaryAccent, // Цвет текста кнопок
+          ),
+        ),
+        // Стиль для иконок
+        iconTheme: const IconThemeData(color: Colors.black87),
         cardTheme: CardThemeData(
           color: Colors.white,
-          elevation: 2, // Добавил небольшую тень для сочности
+          elevation: 2,
           shadowColor: primaryAccent.withOpacity(0.1),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
@@ -117,13 +132,24 @@ class _MyAppState extends State<MyApp> {
         useMaterial3: true,
         brightness: Brightness.dark,
         colorScheme: ColorScheme.dark(
-          primary: primaryAccent, // В темноте он будет прямо гореть
+          primary: primaryAccent,
           onPrimary: onPrimaryColor,
           secondary: const Color(0xFFA78BFA),
           surface: darkCard,
           background: darkBg,
           outlineVariant: darkOutline,
         ),
+        // ИСПРАВЛЕНИЕ: Стили для AppBar в темной теме
+        appBarTheme: const AppBarTheme(
+          backgroundColor: darkCard,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: false,
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(foregroundColor: primaryAccent),
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
         cardTheme: CardThemeData(
           color: darkCard,
           elevation: 0,
@@ -132,7 +158,6 @@ class _MyAppState extends State<MyApp> {
             side: BorderSide(color: darkOutline.withOpacity(0.5)),
           ),
         ),
-        // Исправляем DialogThemeData
         dialogTheme: DialogThemeData(
           backgroundColor: darkCard,
           shape: RoundedRectangleBorder(

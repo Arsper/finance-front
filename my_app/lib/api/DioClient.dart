@@ -9,9 +9,8 @@ class Dioclient {
     if (_dio == null) {
       _dio = Dio(
         BaseOptions(
-          // baseUrl: "http://10.0.2.2:8080", // Раскомментируйте и проверьте IP, если нужно
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 10),
+          connectTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 30),
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',

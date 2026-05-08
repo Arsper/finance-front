@@ -1,6 +1,8 @@
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
 import 'package:my_app/Pages/Register/ForgotPasswordPage.dart';
 import 'package:my_app/Pages/Register/register.dart';
@@ -21,7 +23,27 @@ class _LoginPageState extends State<LoginPage> {
   final _passController = TextEditingController();
 
   bool _isLoading = false;
-  String? _serverError; // 1. Добавляем переменную для хранения текста ошибки
+  String? _serverError;
+
+  final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeGoogleSignIn();
+  }
+
+  Future<void> _initializeGoogleSignIn() async {
+    // Твой Client ID от WEB-приложения из Google Cloud Console
+    const String webClientId =
+        "974712441086-g5786e4k76hgq7iq5ur1pcabdk4tnf4a.apps.googleusercontent.com";
+
+    await _googleSignIn.initialize(
+      clientId: kIsWeb ? webClientId : null, // Для веба нужен clientId
+      serverClientId:
+          webClientId, // ДЛЯ ANDROID ОБЯЗАТЕЛЬНО передаем веб-клиент сюда
+    );
+  }
 
   @override
   void dispose() {
@@ -30,10 +52,51 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  Future<void> _handleGoogleSignIn() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _serverError = null;
+      });
+
+      // Заменяем .signIn() на .authenticate()
+      final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
+
+      // В этой версии authenticate возвращает GoogleSignInAccount (не nullable),
+      // но лучше оставить проверку или обработать исключение через try-catch,
+      // так как при отмене пользователем кидается GoogleSignInException.
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+      final String? idToken = googleAuth.idToken;
+
+      if (idToken != null) {
+        final dataSource = UserRemoteDataSource(dio: Dioclient.instance);
+        bool success = await dataSource.loginWithGoogle(idToken);
+
+        if (success && mounted) {
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil('/home', (route) => false);
+        } else if (mounted) {
+          setState(() => _serverError = "Ошибка авторизации на сервере");
+        }
+      }
+    } catch (e) {
+      debugPrint("Google Sign-In Error: $e");
+      if (mounted) {
+        // Если пользователь отменил вход, authenticate() выбросит исключение
+        // с кодом GoogleSignInExceptionCode.canceled
+        setState(() => _serverError = "Не удалось войти через Google");
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Сбрасываем ошибку при новой попытке входа
     setState(() {
       _isLoading = true;
       _serverError = null;
@@ -51,7 +114,6 @@ class _LoginPageState extends State<LoginPage> {
           context,
         ).pushNamedAndRemoveUntil('/home', (route) => false);
       } else if (mounted) {
-        // 2. Вместо SnackBar устанавливаем текст в переменную
         setState(
           () => _serverError = "Ошибка входа. Проверьте логин и пароль.",
         );
@@ -199,8 +261,6 @@ class _LoginPageState extends State<LoginPage> {
                                       ),
                               ),
                             ),
-
-                            // 3. Добавляем виджет вывода ошибки прямо под кнопкой
                             if (_serverError != null) ...[
                               const SizedBox(height: 16),
                               Container(
@@ -227,7 +287,6 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                               ),
                             ],
-
                             const SizedBox(height: 24),
                             _buildDivider(textMuted, outlineVariant),
                             const SizedBox(height: 24),
@@ -240,22 +299,11 @@ class _LoginPageState extends State<LoginPage> {
                                     bgColor: socialBtnBg,
                                     textColor: textColor,
                                     borderColor: outlineVariant,
+                                    onPressed:
+                                        _handleGoogleSignIn, // ПЕРЕДАЕМ МЕТОД
                                   ),
                                 ),
                                 const SizedBox(width: 16),
-                                Expanded(
-                                  child: _buildSocialButton(
-                                    assetPath: 'assets/icons/apple.svg',
-                                    title: "Apple",
-                                    bgColor: socialBtnBg,
-                                    textColor: textColor,
-                                    borderColor: outlineVariant,
-                                    // Для Apple применяем фильтр цвета в зависимости от темы
-                                    logoColor: isDark
-                                        ? Colors.white
-                                        : Colors.black,
-                                  ),
-                                ),
                               ],
                             ),
                           ],
@@ -289,8 +337,6 @@ class _LoginPageState extends State<LoginPage> {
       ),
     );
   }
-
-  // --- Вспомогательные методы ---
 
   Widget _buildBlurCircle({
     double? top,
@@ -334,6 +380,7 @@ class _LoginPageState extends State<LoginPage> {
     required Color bgColor,
     required Color textColor,
     required Color borderColor,
+    required VoidCallback onPressed, // Добавили обязательный колбэк
     Color? logoColor,
   }) {
     return SizedBox(
@@ -347,9 +394,7 @@ class _LoginPageState extends State<LoginPage> {
           ),
           padding: EdgeInsets.zero,
         ),
-        onPressed: () {
-          // Здесь будет логика OAuth
-        },
+        onPressed: onPressed, // Привязываем к кнопке
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -357,7 +402,6 @@ class _LoginPageState extends State<LoginPage> {
               assetPath,
               width: 22,
               height: 22,
-              // colorFilter — правильный способ перекрасить SVG в новых версиях пакета
               colorFilter: logoColor != null
                   ? ColorFilter.mode(logoColor, BlendMode.srcIn)
                   : null,
