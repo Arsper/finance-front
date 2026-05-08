@@ -12,6 +12,18 @@ class UserRemoteDataSource {
 
   UserRemoteDataSource({required this.dio});
 
+  Future<bool> isLoginTaken(String login) async {
+    try {
+      final response = await dio.get(
+        UrlParameters.checkLogin,
+        queryParameters: {'login': login},
+      );
+      return response.data == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<bool> loginUser(String pas, String email) async {
     try {
       final response = await dio.post(
@@ -35,28 +47,28 @@ class UserRemoteDataSource {
   }
 
   Future<bool> loginWithGoogle(String idToken) async {
-  try {
-    final response = await dio.post(
-      UrlParameters.googleRegister, 
-      data: {'idToken': idToken}, 
-    );
+    try {
+      final response = await dio.post(
+        UrlParameters.googleRegister,
+        data: {'idToken': idToken},
+      );
 
-    if (response.statusCode == 200) {
-      // 3. Извлекаем JWT токен, который сгенерировал твой Spring Boot
-      final token = response.data['token']; 
-      
-      if (token != null) {
-        // 4. Сохраняем его локально для будущих запросов к API
-        await StorageService.saveToken(token); 
-        return true;
+      if (response.statusCode == 200) {
+        // 3. Извлекаем JWT токен, который сгенерировал твой Spring Boot
+        final token = response.data['token'];
+
+        if (token != null) {
+          // 4. Сохраняем его локально для будущих запросов к API
+          await StorageService.saveToken(token);
+          return true;
+        }
       }
+      return false;
+    } catch (e) {
+      debugPrint("Backend Google Auth Error: $e");
+      return false;
     }
-    return false;
-  } catch (e) {
-    debugPrint("Backend Google Auth Error: $e");
-    return false;
   }
-}
 
   Future<bool> sendRegistrationCode(String email) async {
     try {

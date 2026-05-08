@@ -142,8 +142,15 @@ class _RegisterPageState extends State<RegisterPage> {
       bool canProceed = false;
 
       if (_currentStep == 0) {
-        // Шаг 0: Логин (можно добавить проверку на уникальность логина)
-        canProceed = true;
+        final String login = _loginController.text.trim();
+        final bool isTaken = await _dataSource.isLoginTaken(login);
+
+        if (isTaken) {
+          setState(() => _loginError = "Этот логин уже занят");
+          canProceed = false;
+        } else {
+          canProceed = true;
+        }
       } else if (_currentStep == 1) {
         // Шаг 1: Отправка кода на Email
         canProceed = await _dataSource.sendRegistrationCode(

@@ -6,6 +6,7 @@ class UrlParameters {
   static String verifyCode = getFullUrl('auth/verify-code-step');
   static String registrationUrl = getFullUrl('auth/register-final');
   static String loginUrl = getFullUrl('auth/login');
+  static String checkLogin = getFullUrl('auth/check-login');
 
   static String forgotSendCode = getFullUrl('auth/forgot-password/send-code');
   static String forgotReset = getFullUrl('auth/forgot-password/reset');
