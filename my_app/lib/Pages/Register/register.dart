@@ -8,6 +8,7 @@ import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
 import 'package:my_app/api/url/urlParametrs.dart';
 import 'package:my_app/helpers/validators.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -199,31 +200,53 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> _submit() async {
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
       final response = await Dioclient.instance.post(
-        UrlParameters.registrationUrl,
+        UrlParameters.registrationUrl, // Используем URL регистрации
         data: {
           'login': _loginController.text.trim(),
           'email': _emailController.text.trim(),
           'password': _passController.text,
-          'emailCode': _otpController.text
-              .trim(), // Проверь, что в Java поле называется 'code'
+          'emailCode': _otpController.text.trim(),
         },
       );
 
       if (response.statusCode == 200 && mounted) {
+        // Вызываем сохранение данных из JSON (id, token, login)
+        await _saveUserData(response.data);
+
         Navigator.of(
           context,
         ).pushNamedAndRemoveUntil('/home', (route) => false);
       }
     } on DioException catch (e) {
-      // Выводим текст ошибки от самого сервера
       final errorMessage = e.response?.data?.toString() ?? "Ошибка сервера";
       _showSnackBar("Ошибка: $errorMessage", isError: true);
-      debugPrint("Full Error: ${e.response?.data}");
     } catch (e) {
       _showSnackBar("Неизвестная ошибка: $e", isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _saveUserData(Map<String, dynamic> data) async {
+    final String token = data['token'];
+    final int userId = data['id'];
+    final String login = data['login'] ?? "";
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('token', token);
+    await prefs.setInt('userId', userId);
+    await prefs.setString('userLogin', login);
+
+    // ВАЖНО: Добавляем токен в дефолтные заголовки Dio для текущей сессии
+    Dioclient.instance.options.headers["Authorization"] = "Bearer $token";
+
+    debugPrint("Данные сохранены. ID: $userId");
   }
 
   // --- UI ---

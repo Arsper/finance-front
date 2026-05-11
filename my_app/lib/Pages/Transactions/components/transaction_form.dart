@@ -12,6 +12,7 @@ class TransactionForm extends StatefulWidget {
   final VoidCallback onAddCategory;
   final Function(Map<String, dynamic> category)? onEditCategory;
   final Function(Map<String, dynamic> data) onSave;
+  final VoidCallback? onDelete; // Добавлено для обработки удаления
   final bool Function(Map<String, dynamic> cat) isCategoryEditable;
 
   const TransactionForm({
@@ -24,6 +25,7 @@ class TransactionForm extends StatefulWidget {
     required this.onSave,
     required this.isCategoryEditable,
     this.onEditCategory,
+    this.onDelete, // Добавлено в конструктор
   });
 
   @override
@@ -50,8 +52,7 @@ class _TransactionFormState extends State<TransactionForm> {
       text: widget.existing?['description'] ?? "",
     );
     dateController = TextEditingController(
-      text:
-          widget.existing?['transactionDate'] ??
+      text: widget.existing?['transactionDate'] ??
           DateFormat('yyyy-MM-dd').format(DateTime.now()),
     );
     selectedCategoryId = widget.existing?['categoryId'];
@@ -63,6 +64,7 @@ class _TransactionFormState extends State<TransactionForm> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -72,112 +74,125 @@ class _TransactionFormState extends State<TransactionForm> {
       ),
       child: Form(
         key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              widget.existing == null ? "Новая операция" : "Редактирование",
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 15),
-            ToggleButtons(
-              isSelected: [!isIncome, isIncome],
-              onPressed: (index) => setState(() => isIncome = index == 1),
-              borderRadius: BorderRadius.circular(10),
-              selectedColor: Colors.white,
-              fillColor: isIncome ? Colors.green : Colors.red,
-              children: const [
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 30),
-                  child: Text("Расход"),
-                ),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 30),
-                  child: Text("Доход"),
-                ),
-              ],
-            ),
-            const SizedBox(height: 15),
-            _buildCategoryRow(),
-            const SizedBox(height: 15),
-            CustomerEdit(
-              controller: amountController,
-              label: "Сумма",
-              icon: isIncome
-                  ? Icons.add_circle_outline
-                  : Icons.remove_circle_outline,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.existing == null ? "Новая операция" : "Редактирование",
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*[.,]?\d{0,2}')),
-              ],
-              validator: AppValidators.amount,
-            ),
-            const SizedBox(height: 15),
-            CustomerEdit(
-              controller: dateController,
-              label: "Дата",
-              icon: Icons.calendar_today,
-              readOnly: true,
-              onTap: () async {
-                DateTime? picked = await showDatePicker(
-                  context: context,
-                  initialDate: DateTime.now(),
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2101),
-                );
-
-                if (picked != null) {
-                  // Добавили открывающую скобку
-                  setState(
-                    () => dateController.text = DateFormat(
-                      'yyyy-MM-dd',
-                    ).format(picked),
+              const SizedBox(height: 15),
+              ToggleButtons(
+                isSelected: [!isIncome, isIncome],
+                onPressed: (index) => setState(() => isIncome = index == 1),
+                borderRadius: BorderRadius.circular(10),
+                selectedColor: Colors.white,
+                fillColor: isIncome ? Colors.green : Colors.red,
+                children: const [
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 30),
+                    child: Text("Расход"),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 30),
+                    child: Text("Доход"),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 15),
+              _buildCategoryRow(),
+              const SizedBox(height: 15),
+              CustomerEdit(
+                controller: amountController,
+                label: "Сумма",
+                icon: isIncome
+                    ? Icons.add_circle_outline
+                    : Icons.remove_circle_outline,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d*[.,]?\d{0,2}')),
+                ],
+                validator: AppValidators.amount,
+              ),
+              const SizedBox(height: 15),
+              CustomerEdit(
+                controller: dateController,
+                label: "Дата",
+                icon: Icons.calendar_today,
+                readOnly: true,
+                onTap: () async {
+                  DateTime? picked = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.now(),
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2101),
                   );
-                } 
-              },
-            ),
-            const SizedBox(height: 15),
-            CustomerEdit(
-              controller: descController,
-              label: "Описание",
-              icon: Icons.description_outlined,
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 50),
-                backgroundColor: colors.primary,
-                foregroundColor: colors.onPrimary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+
+                  if (picked != null) {
+                    setState(
+                      () => dateController.text =
+                          DateFormat('yyyy-MM-dd').format(picked),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 15),
+              CustomerEdit(
+                controller: descController,
+                label: "Описание",
+                icon: Icons.description_outlined,
+              ),
+              const SizedBox(height: 20),
+              
+              // Кнопка сохранения
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  backgroundColor: colors.primary,
+                  foregroundColor: colors.onPrimary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () {
+                  if (_formKey.currentState!.validate()) {
+                    double val = double.tryParse(
+                          amountController.text.replaceAll(',', '.'),
+                        ) ?? 0;
+                    widget.onSave({
+                      "categoryId": selectedCategoryId,
+                      "amount": isIncome ? val : -val,
+                      "description": descController.text,
+                      "transactionDate": dateController.text,
+                      "isIncome": isIncome,
+                    });
+                  }
+                },
+                child: const Text(
+                  "Сохранить",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
               ),
-              onPressed: () {
-                if (_formKey.currentState!.validate()) {
-                  double val =
-                      double.tryParse(
-                        amountController.text.replaceAll(',', '.'),
-                      ) ??
-                      0;
-                  widget.onSave({
-                    "categoryId": selectedCategoryId,
-                    "amount": isIncome ? val : -val,
-                    "description": descController.text,
-                    "transactionDate": dateController.text,
-                    "isIncome":
-                        isIncome, // Передаем флаг для проверки лимита в основном файле
-                  });
-                }
-              },
-              child: const Text(
-                "Сохранить",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
+
+              // Кнопка удаления (только для существующих записей)
+              if (widget.existing != null) ...[
+                const SizedBox(height: 10),
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    foregroundColor: colors.error,
+                    minimumSize: const Size(double.infinity, 45),
+                  ),
+                  onPressed: widget.onDelete,
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text("Удалить операцию"),
+                ),
+              ],
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
@@ -204,13 +219,15 @@ class _TransactionFormState extends State<TransactionForm> {
             },
             child: AbsorbPointer(
               child: TextFormField(
+                key: ValueKey(selectedCategoryId),
                 decoration: InputDecoration(
                   labelText: "Категория",
                   border: const OutlineInputBorder(),
                   prefixIcon: const Icon(Icons.category),
-                  hintText: selectedCat.isEmpty
-                      ? 'Выберите категорию'
-                      : selectedCat['name'],
+                  hintText: selectedCat.isEmpty ? 'Выберите категорию' : null,
+                ),
+                controller: TextEditingController(
+                  text: selectedCat['name'] ?? "",
                 ),
               ),
             ),

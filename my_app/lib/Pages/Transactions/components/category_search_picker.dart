@@ -21,7 +21,7 @@ class CategorySearchPicker extends StatefulWidget {
 
 class _CategorySearchPickerState extends State<CategorySearchPicker> {
   String searchQuery = "";
-  String filterType = "all"; 
+  String filterType = "all";
 
   @override
   Widget build(BuildContext context) {
@@ -31,8 +31,10 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
 
     final filtered = widget.categories.where((c) {
       final bool isPersonal = c['isPersonal'] == true || c['userId'] != null;
-      final bool matchesSearch = c['name'].toLowerCase().contains(searchQuery.toLowerCase());
-      
+      final bool matchesSearch = c['name'].toLowerCase().contains(
+        searchQuery.toLowerCase(),
+      );
+
       bool matchesType = true;
       if (filterType == "personal") matchesType = isPersonal;
       if (filterType == "system") matchesType = !isPersonal;
@@ -44,8 +46,8 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
       // Убираем жесткий цвет фона, используем системный surface
       backgroundColor: colors.surface,
       title: Text(
-        "Выбор категории", 
-        style: TextStyle(color: colors.onSurface) // Адаптивный цвет заголовка
+        "Выбор категории",
+        style: TextStyle(color: colors.onSurface), // Адаптивный цвет заголовка
       ),
       content: SizedBox(
         width: double.maxFinite,
@@ -57,7 +59,9 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
               style: TextStyle(color: colors.onSurface),
               decoration: InputDecoration(
                 hintText: "Поиск по названию...",
-                hintStyle: TextStyle(color: colors.onSurfaceVariant.withValues(alpha: 0.6)),
+                hintStyle: TextStyle(
+                  color: colors.onSurfaceVariant.withValues(alpha: 0.6),
+                ),
                 prefixIcon: Icon(Icons.search, color: colors.onSurfaceVariant),
                 // Границы поля теперь зависят от темы
                 enabledBorder: OutlineInputBorder(
@@ -72,7 +76,7 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
               onChanged: (val) => setState(() => searchQuery = val),
             ),
             const SizedBox(height: 16),
-            
+
             // Тематические фильтры
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -87,43 +91,98 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
               ),
             ),
             const SizedBox(height: 12),
-            
+
             Expanded(
-              child: filtered.isEmpty 
-                ? Center(child: Text("Ничего не найдено", style: TextStyle(color: colors.onSurfaceVariant)))
-                : ListView.builder(
-                itemCount: filtered.length,
-                itemBuilder: (ctx, i) {
-                  final c = filtered[i];
-                  final bool isPersonal = c['isPersonal'] == true || c['userId'] != null;
+              child: filtered.isEmpty
+                  ? Center(
+                      child: Text(
+                        "Ничего не найдено",
+                        style: TextStyle(color: colors.onSurfaceVariant),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: filtered.length,
+                      itemBuilder: (ctx, i) {
+                        final c = filtered[i];
+                        final bool isPersonal =
+                            c['isPersonal'] == true || c['userId'] != null;
 
-                  final limit = widget.activeLimits.firstWhere(
-                    (l) => l['categoryId'].toString() == c['categoryId'].toString(),
-                    orElse: () => null,
-                  );
+                        final dynamic categoryIdRaw =
+                            c['categoryId'] ??
+                            c['id']; // на случай разницы в именах
+                        final int? categoryId = categoryIdRaw is int
+                            ? categoryIdRaw
+                            : int.tryParse(categoryIdRaw?.toString() ?? '');
 
-                  return ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                    leading: Icon(
-                      isPersonal ? Icons.person_pin_rounded : Icons.category_rounded,
-                      color: isPersonal ? colors.primary : colors.onSurfaceVariant,
+                        final dynamic rawCatId = c['categoryId'] ?? c['id'];
+                        final String currentId = rawCatId.toString();
+
+                        final limit = widget.activeLimits.firstWhere((l) {
+                          // ЛОГ ДЛЯ ПРОВЕРКИ (удалите после отладки)
+                          // print("Сравниваем лимит: ${l['categoryId']} с категорией: $currentId");
+
+                          // Проверьте, точно ли ключ называется 'categoryId' в объекте лимита
+                          return l['categoryId']?.toString() == currentId ||
+                              l['id']?.toString() == currentId;
+                        }, orElse: () => null);
+
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                          ),
+                          leading: Icon(
+                            isPersonal
+                                ? Icons.person_pin_rounded
+                                : Icons.category_rounded,
+                            color: isPersonal
+                                ? colors.primary
+                                : colors.onSurfaceVariant,
+                          ),
+                          title: Text(
+                            c['name'],
+                            style: TextStyle(
+                              color: colors.onSurface,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          subtitle: isPersonal
+                              ? Text(
+                                  "Личная категория",
+                                  style: TextStyle(
+                                    color: colors.primary,
+                                    fontSize: 11,
+                                  ),
+                                )
+                              : null,
+                          trailing: IconButton(
+                            icon: Icon(
+                              limit != null
+                                  ? Icons.timer
+                                  : Icons.timer_outlined,
+                              color: limit != null
+                                  ? Colors.orange
+                                  : colors.onSurfaceVariant.withValues(
+                                      alpha: 0.3,
+                                    ),
+                            ),
+                            onPressed: () {
+                              // Вызываем переход к лимитам, передавая ID и существующий лимит
+                              widget.onManageLimit(categoryId!, limit);
+                            },
+                          ),
+                          onTap: () {
+                            final id = c['categoryId'];
+                            if (id == null) {
+                              print(
+                                "Ошибка: categoryId у выбранной категории равен null!",
+                              );
+                              return;
+                            }
+                            widget.onSelect(id);
+                          },
+                        );
+                      },
                     ),
-                    title: Text(
-                      c['name'], 
-                      style: TextStyle(color: colors.onSurface, fontWeight: FontWeight.w500)
-                    ),
-                    subtitle: isPersonal 
-                      ? Text("Личная категория", style: TextStyle(color: colors.primary, fontSize: 11)) 
-                      : null,
-                    trailing: Icon(
-                      limit != null ? Icons.timer : Icons.timer_outlined,
-                      color: limit != null ? Colors.orange : colors.onSurfaceVariant.withValues(alpha: 0.3),
-                      size: 20,
-                    ),
-                    onTap: () => widget.onSelect(c['categoryId']),
-                  );
-                },
-              ),
             ),
           ],
         ),
