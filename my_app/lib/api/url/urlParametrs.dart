@@ -1,6 +1,6 @@
 class UrlParameters {
   static String getFullUrl(String url) =>
-      'http://10.0.2.2:8080/api/$url';
+      'http://localhost:8080/api/$url';
 
   static String registerSendCode = getFullUrl('auth/send-code');
   static String verifyCode = getFullUrl('auth/verify-code-step');
@@ -25,4 +25,6 @@ class UrlParameters {
 
   static String exchangeConvertUrl = getFullUrl('exchange/convert');
   static String exchangeHistoryUrl = getFullUrl('exchange/history');
+
+  static String limitsUrl = getFullUrl('limits');
 }

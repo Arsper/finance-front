@@ -483,4 +483,78 @@ class UserRemoteDataSource {
       return [];
     }
   }
+
+  // Получить все лимиты для конкретного счета
+  Future<List<dynamic>> getLimits(int billId) async {
+    try {
+      // Путь: /api/limits/wallet/{walletId}
+      final response = await dio.get(
+        '${UrlParameters.limitsUrl}/wallet/$billId',
+      );
+      return response.data;
+    } catch (e) {
+      debugPrint("Ошибка получения лимитов: $e");
+      return [];
+    }
+  }
+
+  // Создать новый лимит
+  Future<bool> addLimit(Map<String, dynamic> data) async {
+    try {
+      // Путь: /api/limits
+      final response = await dio.post(UrlParameters.limitsUrl, data: data);
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint("Ошибка добавления лимита: $e");
+      return false;
+    }
+  }
+
+  // Обновить существующий лимит
+  Future<bool> updateLimit(int limitId, Map<String, dynamic> data) async {
+    try {
+      // Путь: /api/limits/{id}
+      final response = await dio.put(
+        '${UrlParameters.limitsUrl}/$limitId',
+        data: data,
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint("Ошибка обновления лимита: $e");
+      return false;
+    }
+  }
+
+  // Удалить лимит
+  Future<bool> deleteLimit(int limitId) async {
+    try {
+      // Путь: /api/limits/{id}
+      final response = await dio.delete('${UrlParameters.limitsUrl}/$limitId');
+      return response.statusCode == 204 || response.statusCode == 200;
+    } catch (e) {
+      debugPrint("Ошибка удаления лимита: $e");
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>> checkLimit({
+    required int billId,
+    required int categoryId,
+    required double amount,
+  }) async {
+    try {
+      final response = await dio.get(
+        "${UrlParameters.transactionsUrl}/check-limit",
+        queryParameters: {
+          'billId': billId,
+          'categoryId': categoryId,
+          'amount': amount,
+        },
+      );
+      return response.data; // Ожидаем { "exceeded": bool, "diff": double }
+    } catch (e) {
+      debugPrint("Ошибка проверки лимита: $e");
+      return {"exceeded": false, "diff": 0.0};
+    }
+  }
 }
