@@ -283,6 +283,34 @@ class UserRemoteDataSource {
     }
   }
 
+  Future<bool> transferMoney({
+    required int sourceBillId,
+    required int targetBillId,
+    required double amount,
+    required double targetAmount,
+    String description = "Обмен валют",
+  }) async {
+    try {
+      final response = await dio.post(
+        "${UrlParameters.transactionsUrl}/transfer",
+        data: {
+          "sourceBillId": sourceBillId,
+          "targetBillId": targetBillId,
+          "amount": amount,
+          "targetAmount": targetAmount,
+          "description": description,
+        },
+      );
+      return response.statusCode == 200;
+    } on DioException catch (e) {
+      debugPrint("Ошибка перевода: ${e.response?.data}");
+      return false;
+    } catch (e) {
+      debugPrint("Неизвестная ошибка: $e");
+      return false;
+    }
+  }
+
   Future<List<dynamic>> getRecurringPayments() async {
     try {
       final response = await dio.get(UrlParameters.recurringPaymentsUrl);
