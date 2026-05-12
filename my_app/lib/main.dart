@@ -72,13 +72,13 @@ class _MyAppState extends State<MyApp> {
     });
 
     String themeString;
-    if (mode == ThemeMode.light)
+    if (mode == ThemeMode.light) {
       themeString = 'light';
-    else if (mode == ThemeMode.dark)
+    } else if (mode == ThemeMode.dark){
       themeString = 'dark';
-    else
+    }else{
       themeString = 'system';
-
+    }
     StorageService.setThemeMode(themeString);
   }
 
@@ -98,7 +98,6 @@ class _MyAppState extends State<MyApp> {
           onPrimary: onPrimaryColor,
           secondary: const Color(0xFF7C3AED),
           surface: Colors.white,
-          background: lightBg,
           outlineVariant: lightOutline,
         ),
         // ИСПРАВЛЕНИЕ: Добавляем стили для AppBar и кнопок
@@ -119,7 +118,7 @@ class _MyAppState extends State<MyApp> {
         cardTheme: CardThemeData(
           color: Colors.white,
           elevation: 2,
-          shadowColor: primaryAccent.withOpacity(0.1),
+          shadowColor: primaryAccent.withValues(alpha: 0.1),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
             side: BorderSide(color: lightOutline),
@@ -135,40 +134,23 @@ class _MyAppState extends State<MyApp> {
           primary: primaryAccent,
           onPrimary: onPrimaryColor,
           secondary: const Color(0xFFA78BFA),
-          surface: darkCard,
-          background: darkBg,
+          surface: darkBg, // Фон приложения
+          surfaceContainer: darkCard, // Фон карточек и диалогов
+          onSurface: Colors.white, // Основной текст
           outlineVariant: darkOutline,
         ),
-        // ИСПРАВЛЕНИЕ: Стили для AppBar в темной теме
         appBarTheme: const AppBarTheme(
-          backgroundColor: darkCard,
-          foregroundColor: Colors.white,
+          backgroundColor: darkBg,
+          foregroundColor: Colors.white, // Белые иконки и текст
           elevation: 0,
-          centerTitle: false,
         ),
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(foregroundColor: primaryAccent),
+        // Это исправит цвета в DatePicker и других системных окнах
+        datePickerTheme: DatePickerThemeData(
+          headerBackgroundColor: primaryAccent,
+          headerForegroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
         ),
-        iconTheme: const IconThemeData(color: Colors.white),
-        cardTheme: CardThemeData(
-          color: darkCard,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: BorderSide(color: darkOutline.withOpacity(0.5)),
-          ),
-        ),
-        dialogTheme: DialogThemeData(
-          backgroundColor: darkCard,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          titleTextStyle: const TextStyle(color: Colors.white, fontSize: 20),
-          contentTextStyle: const TextStyle(
-            color: Colors.white70,
-            fontSize: 16,
-          ),
-        ),
+        // ...
       ),
 
       initialRoute: widget.isAuth ? '/home' : '/login',
