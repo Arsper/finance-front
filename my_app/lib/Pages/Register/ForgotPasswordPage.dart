@@ -27,6 +27,17 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final _otpController = TextEditingController();
   final _passController = TextEditingController();
   final _confirmPassController = TextEditingController();
+  final _customDomainController = TextEditingController();
+
+  // Параметры доменов (те же, что в регистрации)
+  final List<String> _domains = [
+    "@gmail.com",
+    "@mail.ru",
+    "@yandex.ru",
+    "Свой...",
+  ];
+  String _selectedDomain = "@gmail.com";
+  bool _isCustomDomain = false;
 
   String? _emailError;
   String? _otpError;
@@ -47,6 +58,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     _otpController.dispose();
     _passController.dispose();
     _confirmPassController.dispose();
+    _customDomainController.dispose();
     super.dispose();
   }
 
@@ -60,9 +72,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     try {
       if (_currentStep == 0) {
         setState(() => _emailError = null);
-        final success = await _dataSource.sendForgotPasswordCode(
-          _emailController.text.trim(),
-        );
+        final fullEmail = _getFullEmail(); // Получаем полный адрес
+        final success = await _dataSource.sendForgotPasswordCode(fullEmail);
         if (success) {
           _animateToStep(1);
           _startTimer();
@@ -78,9 +89,10 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           return;
         }
 
+        final fullEmail = _getFullEmail(); // И ЗДЕСЬ ТОЖЕ ПОЛНЫЙ EMAIL
         final isValid = await _dataSource.verifyRegistrationCode(
-          _emailController.text.trim(),
-          _otpController.text,
+          fullEmail,
+          _otpController.text.trim(),
         );
 
         if (isValid) {
@@ -104,7 +116,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
   Future<void> _submitNewPassword() async {
     final success = await _dataSource.resetPassword(
-      _emailController.text.trim(),
+      _getFullEmail(),
       _otpController.text,
       _passController.text,
     );
@@ -153,11 +165,18 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     _timer?.cancel();
     _secondsRemaining = 40;
     _canResend = false;
+    _customDomainController.clear();
+    _isCustomDomain = false;
+    _selectedDomain = "@gmail.com";
   }
 
   // --- UI COMPONENTS ---
 
-  Widget _buildPasswordRequirement(String label, bool isMet, ColorScheme colorScheme) {
+  Widget _buildPasswordRequirement(
+    String label,
+    bool isMet,
+    ColorScheme colorScheme,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
@@ -165,7 +184,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           Icon(
             isMet ? Icons.check_circle : Icons.circle_outlined,
             size: 16,
-            color: isMet ? Colors.green : colorScheme.onSurfaceVariant.withOpacity(0.5),
+            color: isMet
+                ? Colors.green
+                : colorScheme.onSurfaceVariant.withOpacity(0.5),
           ),
           const SizedBox(width: 8),
           Text(
@@ -191,7 +212,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             color: colorScheme.surface,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: _otpError != null ? Colors.redAccent : colorScheme.outlineVariant.withOpacity(0.5),
+              color: _otpError != null
+                  ? Colors.redAccent
+                  : colorScheme.outlineVariant.withOpacity(0.5),
             ),
           ),
           child: Stack(
@@ -206,14 +229,19 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       border: Border.all(
-                        color: hasCharacter ? colorScheme.primary : colorScheme.outline,
+                        color: hasCharacter
+                            ? colorScheme.primary
+                            : colorScheme.outline,
                         width: 2,
                       ),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       hasCharacter ? "●" : "",
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   );
                 }),
@@ -238,7 +266,10 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         ),
         if (_otpError != null) ...[
           const SizedBox(height: 12),
-          Text(_otpError!, style: const TextStyle(color: Colors.redAccent, fontSize: 14)),
+          Text(
+            _otpError!,
+            style: const TextStyle(color: Colors.redAccent, fontSize: 14),
+          ),
         ],
         const SizedBox(height: 24),
         _buildTimerSection(colorScheme),
@@ -279,13 +310,124 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                     _stepWrapper(
                       "Почта",
                       "Введите email, привязанный к вашему аккаунту.",
-                      CustomerEdit(
-                        label: "Email",
-                        icon: Icons.alternate_email,
-                        controller: _emailController,
-                        validator: AppValidators.email,
-                        errorText: _emailError,
-                        onChanged: (v) => setState(() => _emailError = null),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: CustomerEdit(
+                                    label: "Имя почты",
+                                    controller: _emailController,
+                                    maxLength: 32,
+                                    validator: AppValidators
+                                        .emailName, // Используй раздельный валидатор
+                                    onChanged: (v) =>
+                                        setState(() => _emailError = null),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  flex: 2,
+                                  child: _isCustomDomain
+                                      ? CustomerEdit(
+                                          label: "@домен",
+                                          maxLength: 32,
+                                          controller: _customDomainController,
+                                          validator: AppValidators.emailDomain,
+                                          onChanged: (v) => setState(() {}),
+                                        )
+                                      : Container(
+                                          decoration: BoxDecoration(
+                                            color: colorScheme.surfaceVariant
+                                                .withOpacity(0.3),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            border: Border.all(
+                                              color: colorScheme.outlineVariant,
+                                            ),
+                                          ),
+                                          child: DropdownButtonFormField<String>(
+                                            value: _selectedDomain,
+                                            decoration: const InputDecoration(
+                                              border: InputBorder.none,
+                                              contentPadding:
+                                                  EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 15,
+                                                  ),
+                                              isDense: true,
+                                            ),
+                                            isExpanded: true,
+                                            icon: const Icon(
+                                              Icons.arrow_drop_down,
+                                            ),
+                                            items: _domains.map((String value) {
+                                              return DropdownMenuItem<String>(
+                                                value: value,
+                                                child: Text(
+                                                  value,
+                                                  style: const TextStyle(
+                                                    fontSize: 15,
+                                                  ),
+                                                ),
+                                              );
+                                            }).toList(),
+                                            onChanged: (newValue) {
+                                              setState(() {
+                                                if (newValue == "Свой...") {
+                                                  _isCustomDomain = true;
+                                                  _customDomainController.text =
+                                                      "@";
+                                                  _customDomainController
+                                                          .selection =
+                                                      TextSelection.fromPosition(
+                                                        TextPosition(
+                                                          offset:
+                                                              _customDomainController
+                                                                  .text
+                                                                  .length,
+                                                        ),
+                                                      );
+                                                } else {
+                                                  _selectedDomain = newValue!;
+                                                }
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_isCustomDomain)
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: () =>
+                                    setState(() => _isCustomDomain = false),
+                                child: const Text(
+                                  "Выбрать из списка",
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                            ),
+                          if (_emailError != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8, left: 12),
+                              child: Text(
+                                _emailError!,
+                                style: const TextStyle(
+                                  color: Colors.redAccent,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                       colorScheme,
                     ),
@@ -315,23 +457,56 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                             icon: Icons.shield_outlined,
                             isPassword: true,
                             controller: _confirmPassController,
-                            validator: (v) => AppValidators.confirmPass(v, _passController.text),
+                            validator: (v) => AppValidators.confirmPass(
+                              v,
+                              _passController.text,
+                            ),
                             onChanged: (v) => setState(() {}),
                           ),
                           const SizedBox(height: 20),
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: colorScheme.surfaceVariant.withOpacity(0.3),
+                              color: colorScheme.surfaceVariant.withOpacity(
+                                0.3,
+                              ),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Column(
                               children: [
-                                _buildPasswordRequirement("Минимум 6 символов", AppValidators.hasMinLength(_passController.text), colorScheme),
-                                _buildPasswordRequirement("Одна заглавная буква", AppValidators.hasUppercase(_passController.text), colorScheme),
-                                _buildPasswordRequirement("Одна строчная буква", AppValidators.hasLowercase(_passController.text), colorScheme),
-                                _buildPasswordRequirement("Одна цифра", AppValidators.hasDigit(_passController.text), colorScheme),
-                                _buildPasswordRequirement("Один спецсимвол (!@#\$...)", AppValidators.hasSpecialChar(_passController.text), colorScheme),
+                                _buildPasswordRequirement(
+                                  "Минимум 6 символов",
+                                  AppValidators.hasMinLength(
+                                    _passController.text,
+                                  ),
+                                  colorScheme,
+                                ),
+                                _buildPasswordRequirement(
+                                  "Одна заглавная буква",
+                                  AppValidators.hasUppercase(
+                                    _passController.text,
+                                  ),
+                                  colorScheme,
+                                ),
+                                _buildPasswordRequirement(
+                                  "Одна строчная буква",
+                                  AppValidators.hasLowercase(
+                                    _passController.text,
+                                  ),
+                                  colorScheme,
+                                ),
+                                _buildPasswordRequirement(
+                                  "Одна цифра",
+                                  AppValidators.hasDigit(_passController.text),
+                                  colorScheme,
+                                ),
+                                _buildPasswordRequirement(
+                                  "Один спецсимвол (!@#\$...)",
+                                  AppValidators.hasSpecialChar(
+                                    _passController.text,
+                                  ),
+                                  colorScheme,
+                                ),
                               ],
                             ),
                           ),
@@ -397,7 +572,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
               margin: const EdgeInsets.symmetric(horizontal: 4),
               height: 4,
               decoration: BoxDecoration(
-                color: isActive ? colorScheme.primary : colorScheme.outlineVariant,
+                color: isActive
+                    ? colorScheme.primary
+                    : colorScheme.outlineVariant,
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
@@ -407,15 +584,30 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     );
   }
 
-  Widget _stepWrapper(String title, String subtitle, Widget child, ColorScheme colorScheme) {
+  Widget _stepWrapper(
+    String title,
+    String subtitle,
+    Widget child,
+    ColorScheme colorScheme,
+  ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold)),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 12),
-          Text(subtitle, style: TextStyle(fontSize: 16, color: colorScheme.onSurfaceVariant, height: 1.5)),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 16,
+              color: colorScheme.onSurfaceVariant,
+              height: 1.5,
+            ),
+          ),
           const SizedBox(height: 40),
           child,
         ],
@@ -426,19 +618,35 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   Widget _buildTimerSection(ColorScheme colorScheme) {
     return Column(
       children: [
-        Text(_canResend ? "Не получили код?" : "Повторная отправка через:", style: const TextStyle(fontSize: 14)),
+        Text(
+          _canResend ? "Не получили код?" : "Повторная отправка через:",
+          style: const TextStyle(fontSize: 14),
+        ),
         const SizedBox(height: 12),
         _canResend
             ? TextButton(
                 onPressed: () async {
                   _startTimer();
-                  await _dataSource.sendForgotPasswordCode(_emailController.text);
+                  await _dataSource.sendForgotPasswordCode(
+                    _getFullEmail(),
+                  );
                 },
-                child: Text("Отправить еще раз", style: TextStyle(color: colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 16)),
+                child: Text(
+                  "Отправить еще раз",
+                  style: TextStyle(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
               )
             : Text(
                 "00:${_secondsRemaining.toString().padLeft(2, '0')}",
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: colorScheme.primary),
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: colorScheme.primary,
+                ),
               ),
       ],
     );
@@ -452,16 +660,31 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           backgroundColor: colorScheme.primary,
           foregroundColor: colorScheme.onPrimary,
           minimumSize: const Size(double.infinity, 60),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
         ),
         onPressed: _isLoading ? null : _nextStep,
         child: _isLoading
             ? CircularProgressIndicator(color: colorScheme.onPrimary)
             : Text(
-                _currentStep == _totalSteps - 1 ? "Сбросить пароль" : "Продолжить",
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                _currentStep == _totalSteps - 1
+                    ? "Сбросить пароль"
+                    : "Продолжить",
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
       ),
     );
+  }
+
+  String _getFullEmail() {
+    final name = _emailController.text.trim();
+    final domain = _isCustomDomain
+        ? _customDomainController.text.trim()
+        : _selectedDomain;
+    return "$name$domain";
   }
 }

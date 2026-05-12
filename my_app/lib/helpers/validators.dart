@@ -42,22 +42,28 @@ class AppValidators {
     return null;
   }
 
-  // --- Специфичные проверки ---
-
-  static String? email(String? value) {
+  static String? emailName(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return "Введите email";
+      return "Введите имя почты";
     }
-
-    // Регулярное выражение для проверки структуры: name@domain.com
-    final emailRegExp = RegExp(
-      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-    );
-
-    if (!emailRegExp.hasMatch(value.trim())) {
-      return "Введите корректный email";
+    // Разрешаем буквы, цифры и спецсимволы, которые допустимы в имени
+    final nameRegExp = RegExp(r'^[a-zA-Z0-9._%+-]+$');
+    if (!nameRegExp.hasMatch(value.trim())) {
+      return "Некорректные символы";
     }
+    return null;
+  }
 
+  // Валидация только домена (часть ПОСЛЕ @, включая саму @)
+  static String? emailDomain(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "Введите домен";
+    }
+    // Должен начинаться с @, иметь имя и точку с расширением (напр. @mail.ru)
+    final domainRegExp = RegExp(r'^@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+    if (!domainRegExp.hasMatch(value.trim())) {
+      return "Пример: @domain.com";
+    }
     return null;
   }
 

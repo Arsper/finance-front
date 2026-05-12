@@ -3,11 +3,11 @@ import 'package:flutter/services.dart';
 
 class CustomerEdit extends StatefulWidget {
   final String label;
-  final IconData icon;
+  final IconData? icon;
   final int maxLength;
   final TextEditingController? controller;
   final String? Function(String?)? validator;
-  
+
   // Добавленные параметры для обработки ошибок
   final String? errorText;
   final ValueChanged<String>? onChanged;
@@ -18,12 +18,12 @@ class CustomerEdit extends StatefulWidget {
   final TextCapitalization textCapitalization;
   final bool readOnly;
   final VoidCallback? onTap;
-  final TextInputAction? textInputAction; 
+  final TextInputAction? textInputAction;
 
   const CustomerEdit({
     super.key,
     required this.label,
-    required this.icon,
+    this.icon,
     this.controller,
     this.validator,
     this.errorText,
@@ -53,7 +53,7 @@ class _CustomerEditState extends State<CustomerEdit> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context); 
+    final theme = Theme.of(context);
 
     return TextFormField(
       controller: widget.controller,
@@ -70,23 +70,26 @@ class _CustomerEditState extends State<CustomerEdit> {
       // Вызываем внешний onChanged и внутренний setState для счетчика
       onChanged: (val) {
         if (widget.onChanged != null) widget.onChanged!(val);
-        setState(() {}); 
+        setState(() {});
       },
 
-      buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
+      buildCounter:
+          (context, {required currentLength, required isFocused, maxLength}) =>
+              null,
 
       decoration: InputDecoration(
         labelText: widget.label,
-        prefixIcon: Icon(widget.icon),
-        errorText: widget.errorText, // <-- Ключевое изменение: пробрасываем ошибку бэкенда
+        prefixIcon: widget.icon != null ? Icon(widget.icon) : null,
+        errorText: widget
+            .errorText, // <-- Ключевое изменение: пробрасываем ошибку бэкенда
         border: const OutlineInputBorder(),
-        
-        suffix: (!widget.isPassword && widget.errorText == null) 
-          ? Text(
-              '${widget.controller?.text.length ?? 0}/${widget.maxLength}',
-              style: TextStyle(fontSize: 12, color: theme.hintColor),
-            )
-          : null,
+
+        suffix: (!widget.isPassword && widget.errorText == null)
+            ? Text(
+                '${widget.controller?.text.length ?? 0}/${widget.maxLength}',
+                style: TextStyle(fontSize: 12, color: theme.hintColor),
+              )
+            : null,
 
         suffixIcon: widget.isPassword
             ? IconButton(

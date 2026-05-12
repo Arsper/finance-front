@@ -28,6 +28,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final _otpController = TextEditingController();
   final _passController = TextEditingController();
   final _confirmPassController = TextEditingController();
+  final _customDomainController = TextEditingController();
 
   // Локальные ошибки под полями
   String? _loginError;
@@ -41,6 +42,15 @@ class _RegisterPageState extends State<RegisterPage> {
   Timer? _timer;
   int _secondsRemaining = 40;
   bool _canResend = false;
+
+  final List<String> _domains = [
+    "@gmail.com",
+    "@mail.ru",
+    "@yandex.ru",
+    "Свой...",
+  ];
+  String _selectedDomain = "@gmail.com";
+  bool _isCustomDomain = false;
 
   @override
   void initState() {
@@ -57,6 +67,7 @@ class _RegisterPageState extends State<RegisterPage> {
     _passController.dispose();
     _confirmPassController.dispose();
     _pageController.dispose();
+    _customDomainController.dispose();
     super.dispose();
   }
 
@@ -101,7 +112,10 @@ class _RegisterPageState extends State<RegisterPage> {
     _otpController.clear();
     _passController.clear();
     _confirmPassController.clear();
-    _clearErrors(); // Твой существующий метод очистки ошибок
+    _clearErrors();
+    _customDomainController.clear();
+    _isCustomDomain = false;
+    _selectedDomain = "@gmail.com";
 
     // Останавливаем таймер, если он работал
     _timer?.cancel();
@@ -154,9 +168,8 @@ class _RegisterPageState extends State<RegisterPage> {
         }
       } else if (_currentStep == 1) {
         // Шаг 1: Отправка кода на Email
-        canProceed = await _dataSource.sendRegistrationCode(
-          _emailController.text.trim(),
-        );
+        final fullEmail = _getFullEmail();
+        canProceed = await _dataSource.sendRegistrationCode(fullEmail);
         if (!canProceed) {
           setState(() => _emailError = "Данная почта уже занята или неверна");
         }
@@ -166,12 +179,14 @@ class _RegisterPageState extends State<RegisterPage> {
           setState(() => _otpError = "Введите 6-значный код");
           canProceed = false;
         } else {
+          final fullEmail = _getFullEmail();
           canProceed = await _dataSource.verifyRegistrationCode(
-            _emailController.text.trim(),
+            fullEmail,
             _otpController.text.trim(),
           );
-          if (!canProceed)
+          if (!canProceed) {
             setState(() => _otpError = "Неверный или истекший код");
+          }
         }
       } else if (_currentStep == 3) {
         // Шаг 3: Финальная регистрация
@@ -209,7 +224,7 @@ class _RegisterPageState extends State<RegisterPage> {
         UrlParameters.registrationUrl, // Используем URL регистрации
         data: {
           'login': _loginController.text.trim(),
-          'email': _emailController.text.trim(),
+          'email': _getFullEmail(),
           'password': _passController.text,
           'emailCode': _otpController.text.trim(),
         },
@@ -247,6 +262,14 @@ class _RegisterPageState extends State<RegisterPage> {
     Dioclient.instance.options.headers["Authorization"] = "Bearer $token";
 
     debugPrint("Данные сохранены. ID: $userId");
+  }
+
+  String _getFullEmail() {
+    final name = _emailController.text.trim();
+    final domain = _isCustomDomain
+        ? _customDomainController.text.trim()
+        : _selectedDomain;
+    return "$name$domain";
   }
 
   // --- UI ---
@@ -307,14 +330,129 @@ class _RegisterPageState extends State<RegisterPage> {
                     _stepWrapper(
                       "Почта",
                       "Введите вашу почту. Мы пришлем на неё код.",
-                      CustomerEdit(
-                        label: "Email",
-                        icon: Icons.alternate_email,
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        validator: AppValidators.email,
-                        errorText: _emailError,
-                        onChanged: (v) => setState(() => _emailError = null),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // IntrinsicHeight заставляет Row подстроиться под высоту самого высокого соседа
+                          IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: CustomerEdit(
+                                    label: "Имя почты",
+                                    controller: _emailController,
+                                    maxLength: 32,
+                                    validator: AppValidators.emailName,
+                                    onChanged: (v) =>
+                                        setState(() => _emailError = null),
+                                  ),
+                                ),
+                                const SizedBox(
+                                  width: 12,
+                                ), // Чуть увеличил отступ для красоты
+                                Expanded(
+                                  flex: 2,
+                                  child: _isCustomDomain
+                                      ? CustomerEdit(
+                                          label: "@домен",
+                                          maxLength: 32,
+                                          controller: _customDomainController,
+                                          validator: AppValidators
+                                              .emailDomain, // Используем новый валидатор домена
+                                          onChanged: (v) => setState(() {}),
+                                        )
+                                      : Container(
+                                          // Убираем фиксированную высоту, используем декорацию
+                                          decoration: BoxDecoration(
+                                            color: colorScheme.surfaceVariant
+                                                .withOpacity(0.3),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            border: Border.all(
+                                              color: colorScheme.outlineVariant,
+                                            ),
+                                          ),
+                                          child: DropdownButtonFormField<String>(
+                                            // Используем FormField версию для лучшего выравнивания
+                                            value: _selectedDomain,
+                                            decoration: const InputDecoration(
+                                              border: InputBorder.none,
+                                              contentPadding:
+                                                  EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 15,
+                                                  ),
+                                              isDense: true,
+                                            ),
+                                            isExpanded: true,
+                                            icon: const Icon(
+                                              Icons.arrow_drop_down,
+                                            ),
+                                            items: _domains.map((String value) {
+                                              return DropdownMenuItem<String>(
+                                                value: value,
+                                                child: Text(
+                                                  value,
+                                                  style: const TextStyle(
+                                                    fontSize: 15,
+                                                  ),
+                                                ),
+                                              );
+                                            }).toList(),
+                                            onChanged: (newValue) {
+                                              setState(() {
+                                                if (newValue == "Свой...") {
+                                                  _isCustomDomain = true;
+                                                  _customDomainController.text =
+                                                      "@";
+                                                  _customDomainController
+                                                          .selection =
+                                                      TextSelection.fromPosition(
+                                                        TextPosition(
+                                                          offset:
+                                                              _customDomainController
+                                                                  .text
+                                                                  .length,
+                                                        ),
+                                                      );
+                                                } else {
+                                                  _selectedDomain = newValue!;
+                                                }
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_isCustomDomain)
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: () =>
+                                    setState(() => _isCustomDomain = false),
+                                child: const Text(
+                                  "Выбрать из списка",
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                            ),
+                          if (_emailError != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8, left: 12),
+                              child: Text(
+                                _emailError!,
+                                style: const TextStyle(
+                                  color: Colors.redAccent,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                       colorScheme,
                     ),
@@ -561,10 +699,17 @@ class _RegisterPageState extends State<RegisterPage> {
         _canResend
             ? TextButton(
                 onPressed: () async {
+                  // 1. Запускаем таймер заново
                   _startTimer();
-                  await _dataSource.sendRegistrationCode(
-                    _emailController.text.trim(),
-                  );
+                  // 2. Отправляем код на ПОЛНЫЙ email (имя + домен)
+                  try {
+                    await _dataSource.sendRegistrationCode(_getFullEmail());
+                  } catch (e) {
+                    _showSnackBar(
+                      "Ошибка при повторной отправке",
+                      isError: true,
+                    );
+                  }
                 },
                 child: Text(
                   "Отправить еще раз",
