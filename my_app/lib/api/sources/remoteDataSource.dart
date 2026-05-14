@@ -178,8 +178,14 @@ class UserRemoteDataSource {
   Future<bool> deleteWallet(int id) async {
     try {
       final response = await dio.delete('${UrlParameters.billsUrl}/$id');
-      return response.statusCode == 200;
+      // Принимаем оба статус-кода как успех
+      return response.statusCode == 200 || response.statusCode == 204;
+    } on DioException catch (e) {
+      // Это поможет увидеть в консоли, если бэкенд ругается на связи в БД
+      debugPrint("Ошибка удаления (Dio): ${e.response?.data}");
+      return false;
     } catch (e) {
+      debugPrint("Неизвестная ошибка удаления: $e");
       return false;
     }
   }

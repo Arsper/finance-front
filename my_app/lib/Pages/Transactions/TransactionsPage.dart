@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:my_app/CustomerWidgets/AppFloatingButton.dart';
 import 'package:my_app/Pages/Transactions/components/components/filter_screen.dart';
 import 'package:my_app/Pages/Transactions/components/transaction_filter_service.dart';
 import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
-
-// Подключенные компоненты
 import 'components/transaction_form.dart';
-import 'components/limit_manage_dialog.dart';
 import 'components/category_search_picker.dart';
-import 'components/category_manage_dialog.dart';
 
 class TransactionsPage extends StatefulWidget {
   final int billId;
@@ -40,7 +37,6 @@ class _TransactionsPageState extends State<TransactionsPage> {
   bool isLoading = true;
   double currentBillBalance = 0.0;
 
-  // Используем вынесенную модель фильтров
   TransactionFilters _currentFilters = TransactionFilters();
 
   @override
@@ -122,8 +118,8 @@ class _TransactionsPageState extends State<TransactionsPage> {
             onPressed: _openFilters,
             icon: Badge(
               isLabelVisible:
-                  _isFilterActive, // Показываем точку, если фильтр включен
-              child: const Icon(Icons.tune), // Иконка фильтров
+                  _isFilterActive,
+              child: const Icon(Icons.tune),
             ),
           ),
         ],
@@ -132,7 +128,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                _buildActiveFiltersInfo(), // Новая панель сверху
+                _buildActiveFiltersInfo(),
                 _buildStatsHeader(stats),
                 Expanded(
                   child: RefreshIndicator(
@@ -162,18 +158,16 @@ class _TransactionsPageState extends State<TransactionsPage> {
                 ),
               ],
             ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: AppFloatingButton(
         onPressed: () => _openTransactionForm(),
-        child: const Icon(Icons.add),
       ),
     );
   }
 
-
   Widget _buildStatsHeader(Map<String, double> stats) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-      color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
@@ -226,12 +220,12 @@ class _TransactionsPageState extends State<TransactionsPage> {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.withOpacity(0.1)),
+        side: BorderSide(color: Colors.grey.withValues(alpha: 0.1)),
       ),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: (isExpense ? Colors.red : Colors.green).withOpacity(
-            0.1,
+          backgroundColor: (isExpense ? Colors.red : Colors.green).withValues(
+            alpha: 0.1,
           ),
           child: Icon(
             isExpense ? Icons.remove : Icons.add,
@@ -262,10 +256,10 @@ class _TransactionsPageState extends State<TransactionsPage> {
         existing: existing,
         categories: categories,
         currencySymbol: widget.currencySymbol,
-        isCategoryEditable: (cat) => cat['userId'] != null,
-        onAddCategory: () => _openCategoryManage(),
-        onEditCategory: (cat) => _openCategoryManage(existing: cat),
-        onCategoryTap: (callback) => _showCategoryPicker((id) => callback(id)),
+        isCategoryEditable: (cat) => true,
+        onCategoryTap: (callback) =>
+            _showCategoryPicker((id, [name]) => callback(id, name)),
+        onSave: (data) => _checkLimitAndSave(data, existing),
         onDelete: () async {
           final dynamic txId = existing?['id'] ?? existing?['transactionId'];
           if (txId == null) return;
@@ -296,74 +290,21 @@ class _TransactionsPageState extends State<TransactionsPage> {
             if (ctx.mounted) Navigator.pop(ctx);
           }
         },
-        onSave: (data) => _checkLimitAndSave(data, existing),
       ),
     );
   }
 
-  void _showCategoryPicker(Function(int) onSelect) {
+  // В TransactionsPage.dart
+  void _showCategoryPicker(Function(int, [String?]) onSelect) {
     showDialog(
       context: context,
       builder: (ctx) => CategorySearchPicker(
-        categories: categories,
-        activeLimits: activeLimits,
-        onSelect: (id) {
-          onSelect(id);
-          Navigator.pop(ctx);
+        billId: widget.billId,
+        currencySymbol: widget.currencySymbol,
+        onSelect: (id, [name]) {
+          onSelect(id, name);
         },
-        onManageLimit: (id, limit) {
-          Navigator.pop(ctx);
-          _openLimitDialog(id, limit);
-        },
-      ),
-    );
-  }
-
-  void _openLimitDialog(int categoryId, dynamic existingLimit) {
-    showDialog(
-      context: context,
-      builder: (ctx) => LimitManageDialog(
-        categoryId: categoryId,
-        existingLimit: existingLimit,
-        onSave: (data) async {
-          final success = existingLimit == null
-              ? await api.addLimit({...data, "walletId": widget.billId})
-              : await api.updateLimit(existingLimit['id'], data);
-          if (success) {
-            await _loadData();
-            if (ctx.mounted) Navigator.pop(ctx);
-          }
-        },
-        onDelete: (id) async {
-          if (await api.deleteLimit(id)) {
-            await _loadData();
-            if (ctx.mounted) Navigator.pop(ctx);
-          }
-        },
-      ),
-    );
-  }
-
-  void _openCategoryManage({Map<String, dynamic>? existing}) {
-    showDialog(
-      context: context,
-      builder: (ctx) => CategoryManageDialog(
-        existing: existing,
-        onSave: (data) async {
-          final ok = existing == null
-              ? await api.addCategory(data)
-              : await api.updateCategory(existing['categoryId'], data);
-          if (ok) {
-            _loadData();
-            if (ctx.mounted) Navigator.pop(ctx);
-          }
-        },
-        onDelete: (id) async {
-          if (await api.deleteCategory(id)) {
-            _loadData();
-            if (ctx.mounted) Navigator.pop(ctx);
-          }
-        },
+        onChanged: _loadData,
       ),
     );
   }
@@ -444,7 +385,6 @@ class _TransactionsPageState extends State<TransactionsPage> {
   }
 
   void _openFilters() async {
-    // Вызываем наш новый экран (который мы создадим в отдельном файле)
     final result = await Navigator.push<TransactionFilters>(
       context,
       MaterialPageRoute(
@@ -455,7 +395,6 @@ class _TransactionsPageState extends State<TransactionsPage> {
       ),
     );
 
-    // Если пользователь нажал "Применить" (вернул результат), обновляем список
     if (result != null) {
       setState(() {
         _currentFilters = result;
@@ -469,7 +408,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
       child: Row(
         children: [
           const Icon(Icons.filter_list, size: 16),

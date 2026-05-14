@@ -4,14 +4,12 @@ import 'package:flutter/services.dart';
 class CustomerEdit extends StatefulWidget {
   final String label;
   final IconData? icon;
-  final int maxLength;
+  final int? maxLength;
+  final bool showCounter;
   final TextEditingController? controller;
   final String? Function(String?)? validator;
-
-  // Добавленные параметры для обработки ошибок
   final String? errorText;
   final ValueChanged<String>? onChanged;
-
   final bool isPassword;
   final TextInputType keyboardType;
   final List<TextInputFormatter>? inputFormatters;
@@ -29,6 +27,7 @@ class CustomerEdit extends StatefulWidget {
     this.errorText,
     this.onChanged,
     this.maxLength = 64,
+    this.showCounter = true,
     this.isPassword = false,
     this.keyboardType = TextInputType.text,
     this.inputFormatters,
@@ -55,52 +54,45 @@ class _CustomerEditState extends State<CustomerEdit> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final effectiveMaxLength = (widget.maxLength != null && widget.maxLength! > 0) 
+        ? widget.maxLength 
+        : null;
+
     return TextFormField(
       controller: widget.controller,
       obscureText: widget.isPassword ? _obscureText : false,
       obscuringCharacter: '☹',
-      maxLength: widget.maxLength,
+      maxLength: effectiveMaxLength,
       keyboardType: widget.keyboardType,
       inputFormatters: widget.inputFormatters,
       textCapitalization: widget.textCapitalization,
       readOnly: widget.readOnly,
       onTap: widget.onTap,
       textInputAction: widget.textInputAction,
-
-      // Вызываем внешний onChanged и внутренний setState для счетчика
       onChanged: (val) {
         if (widget.onChanged != null) widget.onChanged!(val);
-        setState(() {});
+        if (widget.showCounter) setState(() {});
       },
-
-      buildCounter:
-          (context, {required currentLength, required isFocused, maxLength}) =>
-              null,
-
+      buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
       decoration: InputDecoration(
         labelText: widget.label,
         prefixIcon: widget.icon != null ? Icon(widget.icon) : null,
-        errorText: widget
-            .errorText, // <-- Ключевое изменение: пробрасываем ошибку бэкенда
-        border: const OutlineInputBorder(),
-
-        suffix: (!widget.isPassword && widget.errorText == null)
+        errorText: widget.errorText,
+        border: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+        ),
+        suffix: (widget.showCounter && !widget.isPassword && widget.errorText == null && effectiveMaxLength != null)
             ? Text(
                 '${widget.controller?.text.length ?? 0}/${widget.maxLength}',
                 style: TextStyle(fontSize: 12, color: theme.hintColor),
               )
             : null,
-
         suffixIcon: widget.isPassword
             ? IconButton(
                 icon: Icon(
                   _obscureText ? Icons.visibility_off : Icons.visibility,
                 ),
-                onPressed: () {
-                  setState(() {
-                    _obscureText = !_obscureText;
-                  });
-                },
+                onPressed: () => setState(() => _obscureText = !_obscureText),
               )
             : null,
       ),

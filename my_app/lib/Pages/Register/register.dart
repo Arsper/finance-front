@@ -215,32 +215,33 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> _submit() async {
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
+
+    final payload = {
+      'login': _loginController.text.trim(),
+      'email': _getFullEmail(),
+      'password': _passController.text,
+      'emailCode': _otpController.text.trim(),
+    };
 
     try {
       final response = await Dioclient.instance.post(
-        UrlParameters.registrationUrl, // Используем URL регистрации
-        data: {
-          'login': _loginController.text.trim(),
-          'email': _getFullEmail(),
-          'password': _passController.text,
-          'emailCode': _otpController.text.trim(),
-        },
+        UrlParameters.registrationUrl,
+        data: payload,
       );
 
       if (response.statusCode == 200 && mounted) {
-        // Вызываем сохранение данных из JSON (id, token, login)
         await _saveUserData(response.data);
-
         Navigator.of(
           context,
         ).pushNamedAndRemoveUntil('/home', (route) => false);
       }
     } on DioException catch (e) {
-      final errorMessage = e.response?.data?.toString() ?? "Ошибка сервера";
-      _showSnackBar("Ошибка: $errorMessage", isError: true);
+      _showSnackBar("Ошибка сервера: ${e.response?.statusCode}", isError: true);
+
+      final errorMessage =
+          e.response?.data?.toString() ?? "Ошибка сервера (500)";
+      _showSnackBar(errorMessage, isError: true);
     } catch (e) {
       _showSnackBar("Неизвестная ошибка: $e", isError: true);
     } finally {
@@ -260,8 +261,6 @@ class _RegisterPageState extends State<RegisterPage> {
 
     // ВАЖНО: Добавляем токен в дефолтные заголовки Dio для текущей сессии
     Dioclient.instance.options.headers["Authorization"] = "Bearer $token";
-
-    debugPrint("Данные сохранены. ID: $userId");
   }
 
   String _getFullEmail() {

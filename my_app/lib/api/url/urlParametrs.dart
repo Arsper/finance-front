@@ -1,6 +1,6 @@
 class UrlParameters {
   static String getFullUrl(String url) =>
-      'http://localhost:8080/api/$url';
+      'https://finance-api-production-52ac.up.railway.app/api/$url';
 
   static String registerSendCode = getFullUrl('auth/send-code');
   static String verifyCode = getFullUrl('auth/verify-code-step');

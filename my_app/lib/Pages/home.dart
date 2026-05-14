@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:my_app/Pages/BalanceTab.dart';
 import 'package:my_app/Pages/ExchangeRatesPage.dart';
-import 'package:my_app/Pages/RecurringPaymentsPage.dart';
-import 'package:my_app/Pages/FinancialGoals/FinancialCalculationPage.dart'; 
+import 'package:my_app/Pages/FinancialGoals/FinancialCalculationPage.dart';
+import 'package:my_app/Pages/RecurringPaymen/RecurringPaymentsPage.dart';
 import 'package:my_app/helpers/StorageService.dart';
-import 'package:my_app/main.dart'; // ! Важно импортировать main.dart, чтобы видеть MyApp
+import 'package:my_app/main.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -17,9 +17,9 @@ class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
 
   List<Widget> get _widgetOptions => <Widget>[
-    const BalanceTab(),             
-    const RecurringPaymentsPage(),    
-    const FinancialCalculationPage(), 
+    const BalanceTab(),
+    const RecurringPaymentsPage(),
+    const FinancialCalculationPage(),
     const ExchangeRatesPage(),
   ];
 
@@ -68,15 +68,17 @@ class _HomePageState extends State<HomePage> {
               ),
             ],
           ),
-          
+
           // Кнопка выхода
           IconButton(
             tooltip: 'Выйти',
             icon: const Icon(Icons.logout),
             onPressed: () async {
               await StorageService.clear();
-              if (mounted) {
-                Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+              if (context.mounted) {
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/login', (route) => false);
               }
             },
           ),

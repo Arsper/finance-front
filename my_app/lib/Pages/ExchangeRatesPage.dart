@@ -1,5 +1,6 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:my_app/CustomerWidgets/exchange_dialog.dart';
 import 'package:my_app/api/DioClient.dart';
@@ -19,9 +20,10 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
   final TextEditingController _amountController = TextEditingController(
     text: "1",
   );
+  final _formKey = GlobalKey<FormState>(); // Ключ для валидации
 
   List<Currency> _currencies = [];
-  List<dynamic> _allWallets = []; // Все счета пользователя
+  List<dynamic> _allWallets = [];
   Currency? _selectedFrom;
   Currency? _selectedTo;
 
@@ -39,13 +41,12 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
     _loadInitialData();
   }
 
-  // Загружаем валюты и кошельки одновременно
   Future<void> _loadInitialData() async {
     setState(() => _isLoading = true);
     try {
       final results = await Future.wait([
         _dataSource.getCurrencies(),
-        _dataSource.getWallets(), // Получаем список счетов
+        _dataSource.getWallets(),
       ]);
 
       setState(() {
@@ -69,45 +70,43 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
   }
 
   Future<void> _convert() async {
+    // Безопасная проверка формы
+    if (_formKey.currentState == null) return;
+
+    if (!_formKey.currentState!.validate()) {
+      setState(() => _conversionResult = null);
+      return;
+    }
+
     if (_selectedFrom == null || _selectedTo == null) return;
     final amount = double.tryParse(_amountController.text);
-    if (amount == null) return;
+    if (amount == null || amount <= 0) return;
 
-    final result = await _dataSource.convertCurrency(
-      fromId: _selectedFrom!.idCurrencies,
-      toId: _selectedTo!.idCurrencies,
-      amount: amount,
-    );
+    try {
+      final result = await _dataSource.convertCurrency(
+        fromId: _selectedFrom!.idCurrencies,
+        toId: _selectedTo!.idCurrencies,
+        amount: amount,
+      );
 
-    if (mounted) {
-      setState(() => _conversionResult = result);
-    }
-  }
-
-  Future<void> _loadHistory() async {
-    if (_selectedFrom == null || _selectedTo == null) return;
-    setState(() => _isGraphLoading = true);
-
-    final points = await _dataSource.getExchangeHistory(
-      fromId: _selectedFrom!.idCurrencies,
-      toId: _selectedTo!.idCurrencies,
-      period: _selectedPeriod,
-    );
-
-    if (mounted) {
-      setState(() {
-        _historyPoints = points;
-        _isGraphLoading = false;
-      });
+      if (mounted) {
+        setState(() => _conversionResult = result);
+      }
+    } catch (e) {
+      debugPrint("Ошибка конвертации: $e");
     }
   }
 
   void _showTransferDialog() {
+    if (_formKey.currentState == null || !_formKey.currentState!.validate())
+      return;
+
     if (_selectedFrom == null ||
         _selectedTo == null ||
         _conversionResult == null)
       return;
 
+    // Фильтруем кошельки. ВАЖНО: используем 'currencyCode' для сопоставления
     final fromWallets = _allWallets
         .where((w) => w['currencyCode'] == _selectedFrom!.code)
         .toList();
@@ -115,8 +114,39 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
         .where((w) => w['currencyCode'] == _selectedTo!.code)
         .toList();
 
-    final double initialAmount = double.tryParse(_amountController.text) ?? 1.0;
-    final double exchangeRate = _conversionResult! / initialAmount;
+    final double initialAmount = double.tryParse(_amountController.text) ?? 0.0;
+
+    if (fromWallets.isNotEmpty) {
+      // БЕЗОПАСНОЕ ПОЛУЧЕНИЕ БАЛАНСА: проверяем и null, и правильное имя поля
+      final dynamic rawBalance =
+          fromWallets.first['currentBalance'] ??
+          fromWallets.first['balance'] ??
+          0;
+      final double balance = (rawBalance as num).toDouble();
+
+      if (initialAmount > balance) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Недостаточно средств на кошельке ${_selectedFrom!.code}. "
+              "Не хватает: ${(initialAmount - balance).toStringAsFixed(2)}",
+            ),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        return;
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("У вас нет кошелька в валюте ${_selectedFrom!.code}"),
+        ),
+      );
+      return;
+    }
+
+    final double exchangeRate =
+        _conversionResult! / (initialAmount > 0 ? initialAmount : 1.0);
 
     showModalBottomSheet(
       context: context,
@@ -139,13 +169,31 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
             description: "Обмен ${_selectedFrom!.code} -> ${_selectedTo!.code}",
           );
 
-          if (success && mounted) {
+          if (success && context.mounted) {
             Navigator.pop(context);
-            _loadInitialData(); // Обновляем балансы на главной
+            _loadInitialData(); // Обновляем данные
           }
         },
       ),
     );
+  }
+
+  Future<void> _loadHistory() async {
+    if (_selectedFrom == null || _selectedTo == null) return;
+    setState(() => _isGraphLoading = true);
+
+    final points = await _dataSource.getExchangeHistory(
+      fromId: _selectedFrom!.idCurrencies,
+      toId: _selectedTo!.idCurrencies,
+      period: _selectedPeriod,
+    );
+
+    if (mounted) {
+      setState(() {
+        _historyPoints = points;
+        _isGraphLoading = false;
+      });
+    }
   }
 
   String formatRate(double value) {
@@ -158,161 +206,184 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
 
     return Padding(
       padding: const EdgeInsets.all(16.0),
-      child: ListView(
-        children: [
-          Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  const Text(
-                    "Конвертер валют",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _amountController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: "Сумма",
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (val) => _convert(),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildCurrencyDropdown(_selectedFrom, (val) {
-                          if (val == null) return;
-                          setState(() {
-                            _selectedFrom = val;
-                            // Если валюты совпали, переключаем вторую на другую
-                            if (_selectedFrom == _selectedTo) {
-                              _selectedTo = _currencies.firstWhere(
-                                (c) => c != val,
-                              );
-                            }
-                          });
-                          _convert();
-                          _loadHistory();
-                        }),
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8.0),
-                        child: Icon(Icons.arrow_forward, color: Colors.grey),
-                      ),
-                      Expanded(
-                        child: _buildCurrencyDropdown(_selectedTo, (val) {
-                          if (val == null) return;
-                          setState(() {
-                            _selectedTo = val;
-                            // Если валюты совпали, переключаем первую на другую
-                            if (_selectedTo == _selectedFrom) {
-                              _selectedFrom = _currencies.firstWhere(
-                                (c) => c != val,
-                              );
-                            }
-                          });
-                          _convert();
-                          _loadHistory();
-                        }),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  if (_conversionResult != null) ...[
-                    Text(
-                      "${_amountController.text} ${_selectedFrom?.code ?? ''} = ${_conversionResult!.toStringAsFixed(2)} ${_selectedTo?.code ?? ''}",
-                      style: const TextStyle(
-                        fontSize: 20,
-                        color: Colors.deepPurple,
+      child: Form(
+        // Добавили Form
+        key: _formKey,
+        child: ListView(
+          children: [
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    const Text(
+                      "Конвертер валют",
+                      style: TextStyle(
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: _showTransferDialog,
-                      icon: const Icon(Icons.swap_horiz, color: Colors.white),
-                      label: const Text(
-                        "СОВЕРШИТЬ ПЕРЕВОД",
-                        style: TextStyle(color: Colors.white),
+                    TextFormField(
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
-                        minimumSize: const Size(double.infinity, 48),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                      inputFormatters: [
+                        // Разрешаем только цифры и одну точку/запятую
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'^\d*[.,]?\d*'),
                         ),
+                        // Автоматически заменяем запятую на точку для double.tryParse
+                        TextInputFormatter.withFunction((oldValue, newValue) {
+                          final text = newValue.text.replaceAll(',', '.');
+                          return newValue.copyWith(text: text);
+                        }),
+                      ],
+                      decoration: const InputDecoration(
+                        labelText: "Сумма",
+                        border: OutlineInputBorder(),
                       ),
+                      validator: (val) {
+                        if (val == null || val.isEmpty) return "Введите сумму";
+                        final n = double.tryParse(val);
+                        if (n == null) return "Некорректное число";
+                        if (n <= 0) return "Должно быть больше 0";
+                        return null;
+                      },
+                      onChanged: (val) => _convert(),
                     ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          // Блок с графиком остается без изменений...
-          Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        "Динамика курса",
-                        style: TextStyle(
-                          fontSize: 18,
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildCurrencyDropdown(_selectedFrom, (val) {
+                            if (val == null) return;
+                            setState(() {
+                              _selectedFrom = val;
+                              if (_selectedFrom == _selectedTo) {
+                                _selectedTo = _currencies.firstWhere(
+                                  (c) => c != val,
+                                );
+                              }
+                            });
+                            _convert();
+                            _loadHistory();
+                          }),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8.0),
+                          child: Icon(Icons.arrow_forward, color: Colors.grey),
+                        ),
+                        Expanded(
+                          child: _buildCurrencyDropdown(_selectedTo, (val) {
+                            if (val == null) return;
+                            setState(() {
+                              _selectedTo = val;
+                              if (_selectedTo == _selectedFrom) {
+                                _selectedFrom = _currencies.firstWhere(
+                                  (c) => c != val,
+                                );
+                              }
+                            });
+                            _convert();
+                            _loadHistory();
+                          }),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    if (_conversionResult != null) ...[
+                      Text(
+                        "${_amountController.text} ${_selectedFrom?.code ?? ''} = ${_conversionResult!.toStringAsFixed(2)} ${_selectedTo?.code ?? ''}",
+                        style: const TextStyle(
+                          fontSize: 20,
+                          color: Colors.deepPurple,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      ToggleButtons(
-                        isSelected: [
-                          _selectedPeriod == 'week',
-                          _selectedPeriod == 'month',
-                        ],
-                        onPressed: (index) {
-                          setState(
-                            () =>
-                                _selectedPeriod = index == 0 ? 'week' : 'month',
-                          );
-                          _loadHistory();
-                        },
-                        borderRadius: BorderRadius.circular(8),
-                        constraints: const BoxConstraints(
-                          minHeight: 30,
-                          minWidth: 60,
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: _showTransferDialog,
+                        icon: const Icon(Icons.swap_horiz, color: Colors.white),
+                        label: const Text(
+                          "СОВЕРШИТЬ ПЕРЕВОД",
+                          style: TextStyle(color: Colors.white),
                         ),
-                        children: const [Text("Неделя"), Text("Месяц")],
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          minimumSize: const Size(double.infinity, 48),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    height: 250,
-                    child: _isGraphLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : _historyPoints.isEmpty
-                        ? const Center(child: Text("Нет данных для графика"))
-                        : LineChart(_buildChartData()),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 24),
+            // ... (блок с графиком без изменений, так как вы его уже исправили)
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Динамика курса",
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        ToggleButtons(
+                          isSelected: [
+                            _selectedPeriod == 'week',
+                            _selectedPeriod == 'month',
+                          ],
+                          onPressed: (index) {
+                            setState(
+                              () => _selectedPeriod = index == 0
+                                  ? 'week'
+                                  : 'month',
+                            );
+                            _loadHistory();
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          constraints: const BoxConstraints(
+                            minHeight: 30,
+                            minWidth: 60,
+                          ),
+                          children: const [Text("Неделя"), Text("Месяц")],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      height: 250,
+                      child: _isGraphLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _historyPoints.isEmpty
+                          ? const Center(child: Text("Нет данных для графика"))
+                          : LineChart(_buildChartData()),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -332,21 +403,43 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
     );
   }
 
+  // ... (Ваши импорты иinitState остаются без изменений)
+
   LineChartData _buildChartData() {
     if (_historyPoints.isEmpty) return LineChartData();
+
+    // 1. Более точный расчет диапазона Y
     double minY = _historyPoints
         .map((e) => e.rate)
         .reduce((a, b) => a < b ? a : b);
     double maxY = _historyPoints
         .map((e) => e.rate)
         .reduce((a, b) => a > b ? a : b);
-    double buffer = (maxY - minY) * 0.1;
-    minY -= buffer;
-    maxY += buffer;
+
+    // Если курс почти не меняется (min == max), добавляем небольшой отступ вручную
+    if (minY == maxY) {
+      minY *= 0.95; // -5% отступ
+      maxY *= 1.05; // +5% отступ
+    } else {
+      // Иначе оставляем расчет буфера, но делаем его меньше (5%)
+      double buffer = (maxY - minY) * 0.05;
+      minY -= buffer;
+      maxY += buffer;
+    }
+
+    // ВАЖНО: убедитесь, что minY и maxY положительные для курса,
+    // если они вдруг стали отрицательными после вычета буфера
+    if (minY < 0) minY = 0;
+
+    // 2. Логика для форматирования оси X
+    DateFormat dateFormat = _selectedPeriod == 'month'
+        ? DateFormat('dd.MM.yy') // С годом для месяца
+        : DateFormat('dd.MM'); // Только день.месяц для недели
 
     return LineChartData(
       lineTouchData: LineTouchData(
         touchTooltipData: LineTouchTooltipData(
+          // ... (tooltip_items остаются без изменений)
           getTooltipItems: (spots) => spots
               .map(
                 (s) => LineTooltipItem(
@@ -367,11 +460,25 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
             showTitles: true,
             getTitlesWidget: (val, meta) {
               int idx = val.toInt();
-              if (idx < 0 || idx >= _historyPoints.length || idx % 2 != 0)
+              if (idx < 0 || idx >= _historyPoints.length) {
                 return const SizedBox.shrink();
-              return Text(
-                DateFormat('dd.MM').format(_historyPoints[idx].date),
-                style: const TextStyle(fontSize: 10),
+              }
+
+              // 3. Улучшенная логика отбора точек оси X (интервал)
+              // Для недели показываем каждую вторую (0, 2, 4...)
+              // Для месяца — каждую четвертую (0, 4, 8...) чтобы не накладывались
+              int interval = _selectedPeriod == 'month' ? 4 : 2;
+
+              if (idx % interval != 0) {
+                return const SizedBox.shrink();
+              }
+
+              return Padding(
+                padding: const EdgeInsets.only(top: 10.0), // Отступ от графика
+                child: Text(
+                  dateFormat.format(_historyPoints[idx].date),
+                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                ),
               );
             },
           ),
@@ -379,9 +486,12 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
         leftTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
-            reservedSize: 40,
-            getTitlesWidget: (val, meta) =>
-                Text(formatRate(val), style: const TextStyle(fontSize: 10)),
+            // 4. ГЛАВНОЕ: Увеличиваем место для Y, чтобы избежать наложения
+            reservedSize: 60, // Увеличили с 40 до 60
+            getTitlesWidget: (val, meta) => Text(
+              formatRate(val),
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
           ),
         ),
       ),
@@ -403,7 +513,7 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Colors.deepPurpleAccent.withValues(alpha: 0.3),
+                Colors.deepPurpleAccent.withOpacity(0.3),
                 Colors.transparent,
               ],
             ),

@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
+import 'package:my_app/api/sources/remoteDataSource.dart';
+import 'package:my_app/api/DioClient.dart';
 
 class CategorySearchPicker extends StatefulWidget {
-  final List<dynamic> categories;
-  final List<dynamic> activeLimits;
-  final Function(int) onSelect;
-  final Function(int categoryId, Map<String, dynamic>? existingLimit)
-  onManageLimit;
+  final int billId;
+  final String currencySymbol;
+  final Function(int id, [String? name]) onSelect;
+  final VoidCallback onChanged;
 
   const CategorySearchPicker({
     super.key,
-    required this.categories,
-    required this.activeLimits,
+    required this.billId,
+    required this.currencySymbol,
     required this.onSelect,
-    required this.onManageLimit,
+    required this.onChanged,
   });
 
   @override
@@ -20,203 +22,433 @@ class CategorySearchPicker extends StatefulWidget {
 }
 
 class _CategorySearchPickerState extends State<CategorySearchPicker> {
+  final UserRemoteDataSource api = UserRemoteDataSource(
+    dio: Dioclient.instance,
+  );
+
+  List<dynamic> categories = [];
+  List<dynamic> activeLimits = [];
+  bool isLoading = true;
   String searchQuery = "";
   String filterType = "all";
 
   @override
-  Widget build(BuildContext context) {
-    // Получаем текущую схему цветов (адаптируется под тему автоматически)
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
+  void initState() {
+    super.initState();
+    _loadCategoryData();
+  }
 
-    final filtered = widget.categories.where((c) {
+  Future<void> _loadCategoryData() async {
+    try {
+      final results = await Future.wait([
+        api.getCategories().catchError((e) => []),
+        api.getLimits(widget.billId).catchError((e) => []),
+      ]);
+      if (mounted) {
+        setState(() {
+          categories = results[0];
+          activeLimits = results[1];
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  Widget _buttonText(String text) {
+    return FittedBox(fit: BoxFit.scaleDown, child: Text(text));
+  }
+
+  void _openManageCategory({Map<String, dynamic>? existing}) {
+    final nameController = TextEditingController(text: existing?['name'] ?? "");
+    final formKey = GlobalKey<FormState>();
+    final colors = Theme.of(context).colorScheme;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              existing == null ? "Новая категория" : "Редактирование",
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            if (existing != null)
+              IconButton(
+                onPressed: () async {
+                  if (await api.deleteCategory(existing['categoryId'])) {
+                    widget.onChanged();
+                    await _loadCategoryData();
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  }
+                },
+                icon: Icon(Icons.delete_outline, color: colors.error),
+              ),
+          ],
+        ),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CustomerEdit(
+                controller: nameController,
+                label: "Название",
+                icon: Icons.label_outline,
+                validator: (val) =>
+                    (val == null || val.isEmpty) ? "Введите название" : null,
+              ),
+            ],
+          ),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 45),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    side: BorderSide(
+                      color: colors.outline.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: _buttonText("ОТМЕНА"),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(0, 45),
+                    backgroundColor: colors.primary,
+                    foregroundColor: colors.onPrimary,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () async {
+                    if (formKey.currentState!.validate()) {
+                      final data = {"name": nameController.text};
+                      final response = existing == null
+                          ? await api.addCategory(data)
+                          : await api.updateCategory(
+                              existing['categoryId'],
+                              data,
+                            );
+                      if (response != null) {
+                        widget.onChanged();
+                        await _loadCategoryData();
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      }
+                    }
+                  },
+                  child: _buttonText("СОХРАНИТЬ"),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openLimitManage(int categoryId, dynamic existingLimit) {
+    final limitController = TextEditingController(
+      text: existingLimit != null
+          ? existingLimit['limitAmount'].toString()
+          : "",
+    );
+    final colors = Theme.of(context).colorScheme;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              "Лимит на месяц",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            if (existingLimit != null)
+              IconButton(
+                onPressed: () async {
+                  if (await api.deleteLimit(existingLimit['id'])) {
+                    widget.onChanged();
+                    await _loadCategoryData();
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  }
+                },
+                icon: Icon(Icons.delete_outline, color: colors.error),
+              ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CustomerEdit(
+              controller: limitController,
+              label: "Сумма (${widget.currencySymbol})",
+              icon: Icons.speed,
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 45),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    side: BorderSide(
+                      color: colors.outline.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: _buttonText("ОТМЕНА"),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(0, 45),
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () async {
+                    final amount = double.tryParse(limitController.text) ?? 0;
+                    final data = {
+                      "limitAmount": amount,
+                      "categoryId": categoryId,
+                      "walletId": widget.billId,
+                    };
+                    final ok = existingLimit == null
+                        ? await api.addLimit(data)
+                        : await api.updateLimit(existingLimit['id'], data);
+                    if (ok) {
+                      widget.onChanged();
+                      await _loadCategoryData();
+                      if (ctx.mounted) Navigator.pop(ctx);
+                    }
+                  },
+                  child: _buttonText("ОК"),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    final filtered = categories.where((c) {
       final bool isPersonal = c['isPersonal'] == true || c['userId'] != null;
       final bool matchesSearch = c['name'].toLowerCase().contains(
         searchQuery.toLowerCase(),
       );
-
-      bool matchesType = true;
-      if (filterType == "personal") matchesType = isPersonal;
-      if (filterType == "system") matchesType = !isPersonal;
-
+      bool matchesType =
+          filterType == "all" ||
+          (filterType == "personal" ? isPersonal : !isPersonal);
       return matchesSearch && matchesType;
     }).toList();
 
     return AlertDialog(
-      // Убираем жесткий цвет фона, используем системный surface
-      backgroundColor: colors.surface,
-      title: Text(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text(
         "Выбор категории",
-        style: TextStyle(color: colors.onSurface), // Адаптивный цвет заголовка
+        style: TextStyle(fontWeight: FontWeight.bold),
       ),
       content: SizedBox(
         width: double.maxFinite,
-        height: 500,
-        child: Column(
+        height: 550,
+        child: Stack(
           children: [
-            TextField(
-              // Используем onSurface для текста внутри поля
-              style: TextStyle(color: colors.onSurface),
-              decoration: InputDecoration(
-                hintText: "Поиск по названию...",
-                hintStyle: TextStyle(
-                  color: colors.onSurfaceVariant.withValues(alpha: 0.6),
-                ),
-                prefixIcon: Icon(Icons.search, color: colors.onSurfaceVariant),
-                // Границы поля теперь зависят от темы
-                enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: colors.outlineVariant),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: colors.primary, width: 2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onChanged: (val) => setState(() => searchQuery = val),
-            ),
-            const SizedBox(height: 16),
-
-            // Тематические фильтры
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _buildFilterChip("Все", "all", colors),
-                  const SizedBox(width: 8),
-                  _buildFilterChip("Личные", "personal", colors),
-                  const SizedBox(width: 8),
-                  _buildFilterChip("Общие", "system", colors),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            Expanded(
-              child: filtered.isEmpty
-                  ? Center(
-                      child: Text(
-                        "Ничего не найдено",
-                        style: TextStyle(color: colors.onSurfaceVariant),
+            isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : Column(
+                    children: [
+                      CustomerEdit(
+                        label: "Поиск...",
+                        icon: Icons.search,
+                        onChanged: (val) => setState(() => searchQuery = val),
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: filtered.length,
-                      itemBuilder: (ctx, i) {
-                        final c = filtered[i];
-                        final bool isPersonal =
-                            c['isPersonal'] == true || c['userId'] != null;
+                      const SizedBox(height: 12),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: _buildFilterChips(colors),
+                      ),
+                      const Divider(height: 24),
+                      Expanded(
+                        child: ListView.builder(
+                          padding: const EdgeInsets.only(bottom: 70),
+                          itemCount: filtered.length,
+                          itemBuilder: (ctx, i) {
+                            final c = filtered[i];
+                            final bool isPersonal =
+                                c['isPersonal'] == true || c['userId'] != null;
+                            final int categoryId = c['categoryId'] ?? c['id'];
+                            final limit = activeLimits.firstWhere(
+                              (l) =>
+                                  l['categoryId'].toString() ==
+                                  categoryId.toString(),
+                              orElse: () => null,
+                            );
 
-                        final dynamic categoryIdRaw =
-                            c['categoryId'] ??
-                            c['id']; // на случай разницы в именах
-                        final int? categoryId = categoryIdRaw is int
-                            ? categoryIdRaw
-                            : int.tryParse(categoryIdRaw?.toString() ?? '');
-
-                        final dynamic rawCatId = c['categoryId'] ?? c['id'];
-                        final String currentId = rawCatId.toString();
-
-                        final limit = widget.activeLimits.firstWhere((l) {
-                          // ЛОГ ДЛЯ ПРОВЕРКИ (удалите после отладки)
-                          // print("Сравниваем лимит: ${l['categoryId']} с категорией: $currentId");
-
-                          // Проверьте, точно ли ключ называется 'categoryId' в объекте лимита
-                          return l['categoryId']?.toString() == currentId ||
-                              l['id']?.toString() == currentId;
-                        }, orElse: () => null);
-
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                          ),
-                          leading: Icon(
-                            isPersonal
-                                ? Icons.person_pin_rounded
-                                : Icons.category_rounded,
-                            color: isPersonal
-                                ? colors.primary
-                                : colors.onSurfaceVariant,
-                          ),
-                          title: Text(
-                            c['name'],
-                            style: TextStyle(
-                              color: colors.onSurface,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          subtitle: isPersonal
-                              ? Text(
-                                  "Личная категория",
-                                  style: TextStyle(
-                                    color: colors.primary,
-                                    fontSize: 11,
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: isPersonal
+                                    ? colors.primaryContainer.withValues(
+                                        alpha: 0.3,
+                                      )
+                                    : colors.surfaceContainerHighest.withValues(
+                                        alpha: 0.4,
+                                      ),
+                                borderRadius: BorderRadius.circular(15),
+                                border: Border.all(
+                                  color: isPersonal
+                                      ? colors.primary.withValues(alpha: 0.2)
+                                      : Colors.transparent,
+                                ),
+                              ),
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 2,
+                                ),
+                                leading: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: isPersonal
+                                        ? colors.primary
+                                        : colors.secondary.withValues(
+                                            alpha: 0.1,
+                                          ),
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
-                                )
-                              : null,
-                          trailing: IconButton(
-                            icon: Icon(
-                              limit != null
-                                  ? Icons.timer
-                                  : Icons.timer_outlined,
-                              color: limit != null
-                                  ? Colors.orange
-                                  : colors.onSurfaceVariant.withValues(
-                                      alpha: 0.3,
+                                  child: Icon(
+                                    isPersonal
+                                        ? Icons.person_rounded
+                                        : Icons.dashboard_customize_outlined,
+                                    color: isPersonal
+                                        ? colors.onPrimary
+                                        : colors.secondary,
+                                    size: 20,
+                                  ),
+                                ),
+                                title: Text(
+                                  c['name'],
+                                  style: TextStyle(
+                                    fontWeight: isPersonal
+                                        ? FontWeight.bold
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  isPersonal ? "Личная" : "Общая",
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (isPersonal)
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.edit_note,
+                                          color: colors.primary,
+                                          size: 22,
+                                        ),
+                                        onPressed: () =>
+                                            _openManageCategory(existing: c),
+                                      ),
+                                    IconButton(
+                                      icon: Icon(
+                                        limit != null
+                                            ? Icons.alarm_on
+                                            : Icons.alarm_add,
+                                        color: limit != null
+                                            ? Colors.orange
+                                            : colors.outline.withValues(
+                                                alpha: 0.5,
+                                              ),
+                                        size: 22,
+                                      ),
+                                      onPressed: () =>
+                                          _openLimitManage(categoryId, limit),
                                     ),
-                            ),
-                            onPressed: () {
-                              // Вызываем переход к лимитам, передавая ID и существующий лимит
-                              widget.onManageLimit(categoryId!, limit);
-                            },
-                          ),
-                          onTap: () {
-                            final id = c['categoryId'];
-                            if (id == null) {
-                              print(
-                                "Ошибка: categoryId у выбранной категории равен null!",
-                              );
-                              return;
-                            }
-                            widget.onSelect(id);
+                                  ],
+                                ),
+                                onTap: () {
+                                  widget.onSelect(categoryId, c['name']);
+                                  Navigator.pop(context);
+                                },
+                              ),
+                            );
                           },
-                        );
-                      },
-                    ),
-            ),
+                        ),
+                      ),
+                    ],
+                  ),
+            if (!isLoading)
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: FloatingActionButton(
+                  backgroundColor: colors.primary,
+                  foregroundColor: colors.onPrimary,
+                  elevation: 4,
+                  onPressed: () => _openManageCategory(),
+                  child: const Icon(Icons.add),
+                ),
+              ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text("ОТМЕНА", style: TextStyle(color: colors.primary)),
-        ),
-      ],
     );
   }
 
-  Widget _buildFilterChip(String label, String type, ColorScheme colors) {
-    final bool isSelected = filterType == type;
-    return ChoiceChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (val) => setState(() => filterType = type),
-      // Цвета чипов на базе Material 3
-      selectedColor: colors.primaryContainer,
-      backgroundColor: colors.surfaceContainerHighest.withValues(alpha: 0.3),
-      labelStyle: TextStyle(
-        color: isSelected ? colors.onPrimaryContainer : colors.onSurfaceVariant,
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        fontSize: 13,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: isSelected ? colors.primary : colors.outlineVariant,
-        ),
-      ),
-      showCheckmark: false, // Убираем галочку для чистоты интерфейса
+  Widget _buildFilterChips(ColorScheme colors) {
+    return Row(
+      children: ["all", "personal", "system"].map((type) {
+        return Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: ChoiceChip(
+            label: Text(
+              type == "all"
+                  ? "Все"
+                  : type == "personal"
+                  ? "Личные"
+                  : "Общие",
+            ),
+            selected: filterType == type,
+            onSelected: (val) => setState(() => filterType = type),
+          ),
+        );
+      }).toList(),
     );
   }
 }

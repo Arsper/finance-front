@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class ExchangeTransferDialog extends StatefulWidget {
   final List<dynamic> allWallets;
@@ -8,7 +9,8 @@ class ExchangeTransferDialog extends StatefulWidget {
   final String toCode;
   final double initialAmount;
   final double exchangeRate;
-  final Function(int sourceId, int targetId, double amount, double targetAmount) onConfirm;
+  final Function(int sourceId, int targetId, double amount, double targetAmount)
+  onConfirm;
 
   const ExchangeTransferDialog({
     super.key,
@@ -36,16 +38,23 @@ class _ExchangeTransferDialogState extends State<ExchangeTransferDialog> {
   @override
   void initState() {
     super.initState();
-    _amountController = TextEditingController(text: widget.initialAmount.toString());
+    _amountController = TextEditingController(
+      text: widget.initialAmount.toString(),
+    );
     _currentAmount = widget.initialAmount;
     _calculatedResult = widget.initialAmount * widget.exchangeRate;
-    
-    if (widget.fromWallets.isNotEmpty) _sourceBillId = widget.fromWallets.first['billId'];
-    if (widget.toWallets.isNotEmpty) _targetBillId = widget.toWallets.first['billId'];
+
+    if (widget.fromWallets.isNotEmpty) {
+      _sourceBillId = widget.fromWallets.first['billId'];
+    }
+    if (widget.toWallets.isNotEmpty) {
+      _targetBillId = widget.toWallets.first['billId'];
+    }
   }
 
   void _updateAmount(String value) {
-    final newAmount = double.tryParse(value.replaceFirst(',', '.')) ?? 0;
+    final cleanValue = value.replaceAll(',', '.');
+    final newAmount = double.tryParse(cleanValue) ?? 0;
     setState(() {
       _currentAmount = newAmount;
       _calculatedResult = newAmount * widget.exchangeRate;
@@ -54,11 +63,14 @@ class _ExchangeTransferDialogState extends State<ExchangeTransferDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final selectedWallet = widget.fromWallets.cast<Map<String, dynamic>?>().firstWhere(
-          (w) => w?['billId'] == _sourceBillId,
-          orElse: () => null,
-        );
-    final double balance = (selectedWallet?['currentBalance'] ?? 0).toDouble();
+    final selectedWallet = widget.fromWallets
+        .cast<Map<String, dynamic>?>()
+        .firstWhere((w) => w?['billId'] == _sourceBillId, orElse: () => null);
+
+    final double balance =
+        (selectedWallet?['currentBalance'] ?? selectedWallet?['balance'] ?? 0)
+            .toDouble();
+
     final bool isOverLimit = _sourceBillId != null && _currentAmount > balance;
 
     return Container(
@@ -68,39 +80,43 @@ class _ExchangeTransferDialogState extends State<ExchangeTransferDialog> {
       ),
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-        left: 20, right: 20, top: 12,
+        left: 20,
+        right: 20,
+        top: 12,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildHandle(),
           const SizedBox(height: 24),
-          const Text("Обмен валюты", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const Text(
+            "Обмен валюты",
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 24),
-          
+
           _buildInputBlock(isOverLimit, balance),
           _buildArrowSeparator(),
           _buildResultBlock(),
-          
+
           const SizedBox(height: 24),
           const Divider(),
           const SizedBox(height: 16),
-          
+
           _buildWalletSelectors(),
           const SizedBox(height: 32),
-          
+
           _buildConfirmButton(isOverLimit),
         ],
       ),
     );
   }
 
-  // --- Вспомогательные методы UI ---
-
   Widget _buildHandle() => Container(
-    width: 36, height: 4,
+    width: 36,
+    height: 4,
     decoration: BoxDecoration(
-      color: Colors.grey.withOpacity(0.3),
+      color: Colors.grey.withValues(alpha: 0.3),
       borderRadius: BorderRadius.circular(2),
     ),
   );
@@ -114,12 +130,28 @@ class _ExchangeTransferDialogState extends State<ExchangeTransferDialog> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("Вы отдаете", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  const Text(
+                    "Вы отдаете",
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
                   TextField(
                     controller: _amountController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-                    decoration: const InputDecoration(border: InputBorder.none, hintText: "0.00"),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'^\d*[.,]?\d*'),
+                      ),
+                    ],
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      hintText: "0.00",
+                    ),
                     onChanged: _updateAmount,
                   ),
                 ],
@@ -131,8 +163,14 @@ class _ExchangeTransferDialogState extends State<ExchangeTransferDialog> {
         if (isOverLimit)
           Align(
             alignment: Alignment.centerLeft,
-            child: Text("Недостаточно: ${balance.toStringAsFixed(2)}", 
-              style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+            child: Text(
+              "Недостаточно на балансе: ${balance.toStringAsFixed(2)}",
+              style: const TextStyle(
+                color: Colors.redAccent,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
       ],
     );
@@ -145,9 +183,18 @@ class _ExchangeTransferDialogState extends State<ExchangeTransferDialog> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text("Вы получите", style: TextStyle(color: Colors.grey, fontSize: 12)),
-              Text(_calculatedResult.toStringAsFixed(2),
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.green)),
+              const Text(
+                "Вы получите",
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+              Text(
+                _calculatedResult.toStringAsFixed(2),
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green,
+                ),
+              ),
             ],
           ),
         ),
@@ -164,7 +211,10 @@ class _ExchangeTransferDialogState extends State<ExchangeTransferDialog> {
             label: "Откуда",
             value: _sourceBillId,
             wallets: widget.fromWallets,
-            onChanged: (val) => setState(() => _sourceBillId = val),
+            onChanged: (val) {
+              setState(() => _sourceBillId = val);
+              _updateAmount(_amountController.text);
+            },
           ),
         ),
         const SizedBox(width: 12),
@@ -181,23 +231,46 @@ class _ExchangeTransferDialogState extends State<ExchangeTransferDialog> {
   }
 
   Widget _buildConfirmButton(bool isOverLimit) {
+    final bool isInvalidValue =
+        double.tryParse(_amountController.text.replaceAll(',', '.')) == null;
+
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
         minimumSize: const Size(double.infinity, 56),
         backgroundColor: Colors.deepPurple,
+        disabledBackgroundColor: Colors.grey.shade300,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
-      onPressed: (_sourceBillId == null || _targetBillId == null || isOverLimit || _currentAmount <= 0)
+      onPressed:
+          (_sourceBillId == null ||
+              _targetBillId == null ||
+              isOverLimit ||
+              _currentAmount <= 0 ||
+              isInvalidValue)
           ? null
-          : () => widget.onConfirm(_sourceBillId!, _targetBillId!, _currentAmount, _calculatedResult),
-      child: const Text("ПОДТВЕРДИТЬ", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          : () => widget.onConfirm(
+              _sourceBillId!,
+              _targetBillId!,
+              _currentAmount,
+              _calculatedResult,
+            ),
+      child: const Text(
+        "ПОДТВЕРДИТЬ",
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      ),
     );
   }
 
   Widget _buildCurrencyBadge(String code, Color color) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-    decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-    child: Text(code, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Text(
+      code,
+      style: TextStyle(color: color, fontWeight: FontWeight.bold),
+    ),
   );
 
   Widget _buildArrowSeparator() => const Padding(
@@ -212,7 +285,12 @@ class _CompactSelector extends StatelessWidget {
   final List<dynamic> wallets;
   final ValueChanged<int?> onChanged;
 
-  const _CompactSelector({required this.label, required this.value, required this.wallets, required this.onChanged});
+  const _CompactSelector({
+    required this.label,
+    required this.value,
+    required this.wallets,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -224,17 +302,23 @@ class _CompactSelector extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.withOpacity(0.2)),
+            border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
             borderRadius: BorderRadius.circular(12),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<int>(
               value: value,
               isExpanded: true,
-              items: wallets.map((w) => DropdownMenuItem<int>(
-                value: w['billId'],
-                child: Text(w['name'] ?? 'Счет', style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
-              )).toList(),
+              items: wallets.map((w) {
+                return DropdownMenuItem<int>(
+                  value: w['billId'],
+                  child: Text(
+                    w['name'] ?? 'Счет',
+                    style: const TextStyle(fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                );
+              }).toList(),
               onChanged: onChanged,
             ),
           ),
