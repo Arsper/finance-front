@@ -20,7 +20,7 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
   final TextEditingController _amountController = TextEditingController(
     text: "1",
   );
-  final _formKey = GlobalKey<FormState>(); // Ключ для валидации
+  final _formKey = GlobalKey<FormState>();
 
   List<Currency> _currencies = [];
   List<dynamic> _allWallets = [];
@@ -70,17 +70,20 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
   }
 
   Future<void> _convert() async {
-    // Безопасная проверка формы
     if (_formKey.currentState == null) return;
 
-    if (!_formKey.currentState!.validate()) {
+    if (_selectedFrom == null || _selectedTo == null) return;
+    final text = _amountController.text;
+    if (text.isEmpty) {
       setState(() => _conversionResult = null);
       return;
     }
 
-    if (_selectedFrom == null || _selectedTo == null) return;
-    final amount = double.tryParse(_amountController.text);
-    if (amount == null || amount <= 0) return;
+    final amount = double.tryParse(text);
+    if (amount == null || amount <= 0) {
+      setState(() => _conversionResult = null);
+      return;
+    }
 
     try {
       final result = await _dataSource.convertCurrency(
@@ -98,15 +101,16 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
   }
 
   void _showTransferDialog() {
-    if (_formKey.currentState == null || !_formKey.currentState!.validate())
+    if (_formKey.currentState == null || !_formKey.currentState!.validate()) {
       return;
+    }
 
     if (_selectedFrom == null ||
         _selectedTo == null ||
-        _conversionResult == null)
+        _conversionResult == null) {
       return;
+    }
 
-    // Фильтруем кошельки. ВАЖНО: используем 'currencyCode' для сопоставления
     final fromWallets = _allWallets
         .where((w) => w['currencyCode'] == _selectedFrom!.code)
         .toList();
@@ -117,7 +121,6 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
     final double initialAmount = double.tryParse(_amountController.text) ?? 0.0;
 
     if (fromWallets.isNotEmpty) {
-      // БЕЗОПАСНОЕ ПОЛУЧЕНИЕ БАЛАНСА: проверяем и null, и правильное имя поля
       final dynamic rawBalance =
           fromWallets.first['currentBalance'] ??
           fromWallets.first['balance'] ??
@@ -171,7 +174,7 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
 
           if (success && context.mounted) {
             Navigator.pop(context);
-            _loadInitialData(); // Обновляем данные
+            _loadInitialData();
           }
         },
       ),
@@ -229,15 +232,15 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
+                      controller: _amountController,
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
                       inputFormatters: [
-                        // Разрешаем только цифры и одну точку/запятую
                         FilteringTextInputFormatter.allow(
                           RegExp(r'^\d*[.,]?\d*'),
                         ),
-                        // Автоматически заменяем запятую на точку для double.tryParse
                         TextInputFormatter.withFunction((oldValue, newValue) {
                           final text = newValue.text.replaceAll(',', '.');
                           return newValue.copyWith(text: text);
@@ -274,9 +277,22 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                             _loadHistory();
                           }),
                         ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8.0),
-                          child: Icon(Icons.arrow_forward, color: Colors.grey),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.swap_horiz,
+                            color: Colors.deepPurple,
+                          ),
+                          onPressed: () {
+                            if (_selectedFrom != null && _selectedTo != null) {
+                              setState(() {
+                                final temp = _selectedFrom;
+                                _selectedFrom = _selectedTo;
+                                _selectedTo = temp;
+                              });
+                              _convert();
+                              _loadHistory();
+                            }
+                          },
                         ),
                         Expanded(
                           child: _buildCurrencyDropdown(_selectedTo, (val) {
@@ -327,7 +343,6 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
               ),
             ),
             const SizedBox(height: 24),
-            // ... (блок с графиком без изменений, так как вы его уже исправили)
             Card(
               elevation: 4,
               shape: RoundedRectangleBorder(
@@ -393,7 +408,7 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
     ValueChanged<Currency?> onChanged,
   ) {
     return DropdownButtonFormField<Currency>(
-      value: value,
+      initialValue: value,
       isExpanded: true,
       decoration: const InputDecoration(border: OutlineInputBorder()),
       items: _currencies
@@ -403,12 +418,9 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
     );
   }
 
-  // ... (Ваши импорты иinitState остаются без изменений)
-
   LineChartData _buildChartData() {
     if (_historyPoints.isEmpty) return LineChartData();
 
-    // 1. Более точный расчет диапазона Y
     double minY = _historyPoints
         .map((e) => e.rate)
         .reduce((a, b) => a < b ? a : b);
@@ -416,30 +428,24 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
         .map((e) => e.rate)
         .reduce((a, b) => a > b ? a : b);
 
-    // Если курс почти не меняется (min == max), добавляем небольшой отступ вручную
     if (minY == maxY) {
       minY *= 0.95; // -5% отступ
       maxY *= 1.05; // +5% отступ
     } else {
-      // Иначе оставляем расчет буфера, но делаем его меньше (5%)
       double buffer = (maxY - minY) * 0.05;
       minY -= buffer;
       maxY += buffer;
     }
 
-    // ВАЖНО: убедитесь, что minY и maxY положительные для курса,
-    // если они вдруг стали отрицательными после вычета буфера
     if (minY < 0) minY = 0;
 
-    // 2. Логика для форматирования оси X
     DateFormat dateFormat = _selectedPeriod == 'month'
-        ? DateFormat('dd.MM.yy') // С годом для месяца
-        : DateFormat('dd.MM'); // Только день.месяц для недели
+        ? DateFormat('dd.MM.yy')
+        : DateFormat('dd.MM');
 
     return LineChartData(
       lineTouchData: LineTouchData(
         touchTooltipData: LineTouchTooltipData(
-          // ... (tooltip_items остаются без изменений)
           getTooltipItems: (spots) => spots
               .map(
                 (s) => LineTooltipItem(
@@ -464,9 +470,6 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                 return const SizedBox.shrink();
               }
 
-              // 3. Улучшенная логика отбора точек оси X (интервал)
-              // Для недели показываем каждую вторую (0, 2, 4...)
-              // Для месяца — каждую четвертую (0, 4, 8...) чтобы не накладывались
               int interval = _selectedPeriod == 'month' ? 4 : 2;
 
               if (idx % interval != 0) {
@@ -474,7 +477,7 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
               }
 
               return Padding(
-                padding: const EdgeInsets.only(top: 10.0), // Отступ от графика
+                padding: const EdgeInsets.only(top: 10.0),
                 child: Text(
                   dateFormat.format(_historyPoints[idx].date),
                   style: const TextStyle(fontSize: 10, color: Colors.grey),
@@ -513,7 +516,7 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Colors.deepPurpleAccent.withOpacity(0.3),
+                Colors.deepPurpleAccent.withValues(alpha: 0.3),
                 Colors.transparent,
               ],
             ),

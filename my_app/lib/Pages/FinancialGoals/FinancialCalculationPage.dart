@@ -6,12 +6,15 @@ class FinancialCalculationPage extends StatefulWidget {
   const FinancialCalculationPage({super.key});
 
   @override
-  State<FinancialCalculationPage> createState() => _FinancialCalculationPageState();
+  State<FinancialCalculationPage> createState() =>
+      _FinancialCalculationPageState();
 }
 
-class _FinancialCalculationPageState extends State<FinancialCalculationPage> with SingleTickerProviderStateMixin {
+class _FinancialCalculationPageState extends State<FinancialCalculationPage>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final GlobalKey<GoalsListTabState> _goalsTabKey = GlobalKey<GoalsListTabState>();
+  final GlobalKey<GoalsListTabState> _goalsTabKey =
+      GlobalKey<GoalsListTabState>();
 
   @override
   void initState() {
@@ -27,38 +30,104 @@ class _FinancialCalculationPageState extends State<FinancialCalculationPage> wit
   }
 
   @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDarkTheme = theme.brightness == Brightness.dark;
-    
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Финансовые цели"),
-        // Явно задаем цвета для AppBar
-        backgroundColor: theme.colorScheme.primary,
-        foregroundColor: Colors.white,
-        
-        bottom: TabBar(
-          controller: _tabController,
-          // Явно задаем цвета для вкладок
-          indicatorColor: Colors.white,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          // Добавляем стиль для иконок во вкладках
-          labelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-          unselectedLabelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.normal),
-          tabs: const [
-            Tab(text: "Калькулятор", icon: Icon(Icons.calculate)),
-            Tab(text: "Мои цели", icon: Icon(Icons.flag)),
+      backgroundColor: colorScheme.surface,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: 8,
+              ),
+              child: Container(
+                height: 50,
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.black.withValues(alpha: 0.4)
+                      : Colors.grey[200],
+                  borderRadius: BorderRadius.circular(16),
+                  border: isDark
+                      ? Border.all(
+                          color: colorScheme.outlineVariant.withValues(
+                            alpha: 0.15,
+                          ),
+                        )
+                      : null,
+                ),
+                child: TabBar(
+                  controller: _tabController,
+                  isScrollable: false,
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  dividerColor: Colors.transparent,
+                  indicator: BoxDecoration(
+                    color: isDark
+                        ? colorScheme.primary.withValues(alpha: 0.15)
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: isDark
+                        ? Border.all(
+                            color: colorScheme.primary.withValues(alpha: 0.3),
+                            width: 1,
+                          )
+                        : null,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                          alpha: isDark ? 0.3 : 0.05,
+                        ),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  labelColor: isDark
+                      ? colorScheme.primary
+                      : colorScheme.onSurface,
+                  // Цвет текста неактивной вкладки
+                  unselectedLabelColor: isDark
+                      ? colorScheme.onSurface.withValues(alpha: 0.5)
+                      : colorScheme.onSurfaceVariant,
+                  labelStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  unselectedLabelStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  tabs: const [
+                    Tab(text: "Калькулятор"),
+                    Tab(text: "Мои цели"),
+                  ],
+                ),
+              ),
+            ),
+
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  CalculatorTab(onGoalCreated: _onGoalCreated),
+                  GoalsListTab(key: _goalsTabKey),
+                ],
+              ),
+            ),
           ],
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          CalculatorTab(onGoalCreated: _onGoalCreated),
-          GoalsListTab(key: _goalsTabKey),
-        ],
       ),
     );
   }

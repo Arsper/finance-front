@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
 import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
@@ -29,10 +28,10 @@ class GoalsListTabState extends State<GoalsListTab> {
   }
 
   Future<void> _loadData() async {
+    if (!mounted) return;
     setState(() => isLoading = true);
     try {
       final results = await Future.wait([api.getGoals(), api.getWallets()]);
-
       if (mounted) {
         setState(() {
           goals = results[0];
@@ -41,25 +40,19 @@ class GoalsListTabState extends State<GoalsListTab> {
         });
       }
     } catch (e) {
-      debugPrint("Ошибка загрузки данных: $e");
       if (mounted) setState(() => isLoading = false);
     }
   }
 
   Future<void> loadGoals() => _loadData();
 
-  // Надежный поиск счета через цикл
   Map<String, dynamic>? _findBill(dynamic goalBillId) {
     if (goalBillId == null || bills.isEmpty) return null;
-
     final String searchId = goalBillId.toString().replaceAll('.0', '').trim();
-
     for (var bill in bills) {
       final rawBillId = bill['billId'] ?? bill['id'];
-
       if (rawBillId != null) {
-        String billIdStr = rawBillId.toString().replaceAll('.0', '').trim();
-        if (billIdStr == searchId) {
+        if (rawBillId.toString().replaceAll('.0', '').trim() == searchId) {
           return bill;
         }
       }
@@ -67,17 +60,242 @@ class GoalsListTabState extends State<GoalsListTab> {
     return null;
   }
 
-  String _getCurrency(Map<String, dynamic>? bill) {
-    if (bill == null) return '';
-    return bill['currencyCode'] ?? bill['currency']?.toString() ?? '';
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) return const Center(child: CircularProgressIndicator());
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      backgroundColor: colorScheme.surface,
+      appBar: AppBar(title: Text("Финансовые цели"), actions: []),
+      body: RefreshIndicator(
+        onRefresh: _loadData,
+        child: goals.isEmpty
+            ? Center(
+                child: Text(
+                  "У вас пока нет целей",
+                  style: TextStyle(color: colorScheme.onSurfaceVariant),
+                ),
+              )
+            : ListView.builder(
+                itemCount: goals.length,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                itemBuilder: (context, index) {
+                  final goal = goals[index];
+                  final double target = (goal['targetAmount'] as num)
+                      .toDouble();
+                  final double current = (goal['currentAmount'] ?? 0)
+                      .toDouble();
+                  final double remaining = (target - current) < 0
+                      ? 0
+                      : (target - current);
+                  final linkedBill = _findBill(goal['billId']);
+
+                  String symbol =
+                      goal['currencyCode'] ?? linkedBill?['currencyCode'] ?? '';
+                  double progress = target == 0 ? 0 : (current / target);
+                  if (progress > 1.0) progress = 1.0;
+                  final bool isCompleted = progress >= 1.0;
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? colorScheme.surfaceContainer
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                      border: Border.all(
+                        color: colorScheme.outlineVariant.withValues(
+                          alpha: 0.4,
+                        ),
+                      ),
+                    ),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(24),
+                      onTap: () => _showEditDialog(goal),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          children: [
+                            Column(
+                              children: [
+                                Text(
+                                  goal['name'] ?? "Цель",
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  "Цель: ${target.toStringAsFixed(0)} $symbol",
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 20),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Expanded(
+                                  child: _buildSliderWithText(
+                                    context,
+                                    progress,
+                                    current,
+                                    remaining,
+                                    symbol,
+                                    isCompleted,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                _buildPlusButton(context, isCompleted, goal),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
+    );
   }
 
-  double _getBalance(Map<String, dynamic>? bill) {
-    if (bill == null) return 0.0;
-    return (bill['currentBalance'] ?? bill['balance'] ?? 0).toDouble();
+  Widget _buildSliderWithText(
+    BuildContext context,
+    double progress,
+    double current,
+    double remaining,
+    String symbol,
+    bool isCompleted,
+  ) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final progressColor = isCompleted ? Colors.green : colorScheme.primary;
+    final backgroundColor = isDark
+        ? const Color(0xFF262130)
+        : const Color(0xFFF3F4F6);
+
+    return Container(
+      height: 52,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Stack(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 500),
+                width: constraints.maxWidth * progress,
+                height: double.infinity,
+                decoration: BoxDecoration(
+                  color: progressColor,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              Positioned.fill(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          current.toStringAsFixed(0),
+                          style: TextStyle(
+                            color: progress > 0.15
+                                ? Colors.white
+                                : colorScheme.onSurface,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      if (!isCompleted)
+                        Expanded(
+                          child: Text(
+                            remaining.toStringAsFixed(0),
+                            style: TextStyle(
+                              color: progress > 0.85
+                                  ? Colors.white
+                                  : (isDark
+                                        ? colorScheme.onSurface
+                                        : Colors.black87),
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.end,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      if (isCompleted)
+                        const Icon(
+                          Icons.check_circle_outline,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
-  // --- ДИАЛОГ ПОПОЛНЕНИЯ ---
+  Widget _buildPlusButton(
+    BuildContext context,
+    bool isCompleted,
+    dynamic goal,
+  ) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Material(
+      color: isCompleted
+          ? Colors.green.withValues(alpha: 0.1)
+          : colorScheme.primary,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: isCompleted ? null : () => _showDepositDialog(goal),
+        child: SizedBox(
+          width: 52,
+          height: 52,
+          child: Icon(
+            isCompleted ? Icons.check : Icons.add,
+            color: isCompleted ? Colors.green : Colors.white,
+            size: 26,
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showDepositDialog(Map<String, dynamic> initialGoal) {
     final controller = TextEditingController();
     final formKey = GlobalKey<FormState>();
@@ -90,47 +308,50 @@ class GoalsListTabState extends State<GoalsListTab> {
             (g) => g['id'] == initialGoal['id'],
             orElse: () => initialGoal,
           );
-
           final linkedBill = _findBill(goal['billId']);
           double walletBalance = linkedBill != null
-              ? _getBalance(linkedBill)
+              ? (linkedBill['currentBalance'] ?? linkedBill['balance'] ?? 0)
+                    .toDouble()
               : 0.0;
           double current = (goal['currentAmount'] ?? 0).toDouble();
           double target = (goal['targetAmount'] as num).toDouble();
-          double remaining = target - current;
-          if (remaining < 0) remaining = 0;
-
+          double remaining = target - current < 0 ? 0 : target - current;
           double maxPossibleInput = remaining < walletBalance
               ? remaining
               : walletBalance;
 
           return AlertDialog(
-            title: Text("Пополнить '${goal['name']}'"),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: const Text(
+              "Пополнить цель",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             content: Form(
               key: formKey,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Накоплено: $current / $target",
+                    "Доступно: ${walletBalance.toStringAsFixed(2)}",
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   Text(
-                    "Можно внести не более: ${maxPossibleInput.toStringAsFixed(2)}",
+                    "Максимум: ${maxPossibleInput.toStringAsFixed(2)}",
                     style: const TextStyle(
                       fontSize: 12,
                       color: Colors.blueAccent,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 14),
                   CustomerEdit(
-                    // ДОБАВЬ ЭТУ СТРОКУ:
                     key: ValueKey("limit_$maxPossibleInput"),
-
                     controller: controller,
                     label: "Сумма",
-                    icon: Icons.account_balance_wallet,
+                    icon: Icons.account_balance_wallet_outlined,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
@@ -140,13 +361,9 @@ class GoalsListTabState extends State<GoalsListTab> {
                       ),
                       AmountLimitFormatter(maxPossibleInput),
                     ],
-                    onChanged: (val) {
-                      setDialogState(() {});
-                    },
-                    validator: (val) {
-                      if (val == null || val.isEmpty) return "Введите сумму";
-                      return null;
-                    },
+                    onChanged: (val) => setDialogState(() {}),
+                    validator: (val) =>
+                        (val == null || val.isEmpty) ? "Введите сумму" : null,
                   ),
                 ],
               ),
@@ -154,9 +371,12 @@ class GoalsListTabState extends State<GoalsListTab> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text("Отмена"),
+                child: const Text(
+                  "ОТМЕНА",
+                  style: TextStyle(color: Colors.grey),
+                ),
               ),
-              ElevatedButton(
+              TextButton(
                 onPressed: maxPossibleInput <= 0
                     ? null
                     : () async {
@@ -164,7 +384,6 @@ class GoalsListTabState extends State<GoalsListTab> {
                           double addAmount = double.parse(
                             controller.text.replaceAll(',', '.'),
                           );
-
                           final Map<String, dynamic> updateData = {
                             "name": goal['name'],
                             "targetAmount": goal['targetAmount'],
@@ -174,18 +393,19 @@ class GoalsListTabState extends State<GoalsListTab> {
                             "currentAmount": current + addAmount,
                             "billId": goal['billId'],
                           };
-
                           if (await api.updateGoal(goal['id'], updateData)) {
-                            // Важно: сначала обновляем данные в родителе
                             await _loadData();
-                            if (ctx.mounted) {
-                              // Проверяем mounted именно у контекста диалога
-                              Navigator.pop(ctx);
-                            }
+                            if (ctx.mounted) Navigator.pop(ctx);
                           }
                         }
                       },
-                child: const Text("Внести"),
+                child: Text(
+                  "ВНЕСТИ",
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ],
           );
@@ -194,7 +414,6 @@ class GoalsListTabState extends State<GoalsListTab> {
     );
   }
 
-  // --- ДИАЛОГ РЕДАКТИРОВАНИЯ ---
   void _showEditDialog(Map<String, dynamic> goal) {
     final formKey = GlobalKey<FormState>();
     final nameCtrl = TextEditingController(text: goal['name']);
@@ -202,11 +421,9 @@ class GoalsListTabState extends State<GoalsListTab> {
       text: goal['targetAmount'].toString(),
     );
     final dateCtrl = TextEditingController(text: goal['targetDate']);
-
     dynamic currentBillVal;
 
     final existingBill = _findBill(goal['billId']);
-
     if (existingBill != null) {
       currentBillVal = existingBill['billId'] ?? existingBill['id'];
     } else if (bills.isNotEmpty) {
@@ -217,7 +434,28 @@ class GoalsListTabState extends State<GoalsListTab> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text("Изменить параметры"),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "Параметры",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              IconButton(
+                icon: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: Colors.red,
+                ),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  if (await api.deleteGoal(goal['id'])) _loadData();
+                },
+              ),
+            ],
+          ),
           content: SingleChildScrollView(
             child: Form(
               key: formKey,
@@ -230,12 +468,11 @@ class GoalsListTabState extends State<GoalsListTab> {
                     icon: Icons.title,
                     validator: AppValidators.required,
                   ),
-                  const SizedBox(height: 15),
-
+                  const SizedBox(height: 12),
                   CustomerEdit(
                     controller: targetCtrl,
-                    label: "Цель (Сумма)",
-                    icon: Icons.flag,
+                    label: "Цель",
+                    icon: Icons.outlined_flag,
                     maxLength: 12,
                     keyboardType: TextInputType.number,
                     inputFormatters: [
@@ -245,56 +482,60 @@ class GoalsListTabState extends State<GoalsListTab> {
                     ],
                     validator: AppValidators.amount,
                   ),
-                  const SizedBox(height: 15),
-
+                  const SizedBox(height: 12),
                   DropdownButtonFormField<dynamic>(
                     initialValue: currentBillVal,
                     isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: "Привязанный счет",
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.account_balance_wallet),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontSize: 16,
                     ),
-                    items: bills
-                        .map((b) {
-                          final val = b['billId'] ?? b['id'];
-                          if (val == null) return null;
-
-                          String cur = _getCurrency(b);
-
-                          return DropdownMenuItem<dynamic>(
-                            value: val,
-                            child: Text(
-                              "${b['name']} ($cur)",
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          );
-                        })
-                        .whereType<DropdownMenuItem<dynamic>>()
-                        .toList(),
-                    onChanged: (val) {
-                      setDialogState(() => currentBillVal = val);
-                    },
-                    validator: (val) => val == null ? "Выберите счет" : null,
-                  ),
-                  const SizedBox(height: 15),
-
-                  CustomerEdit(
-                    controller: dateCtrl,
-                    label: "Дата",
-                    icon: Icons.calendar_today,
-                    readOnly: true,
-                    onTap: () async {
-                      DateTime? picked = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.now(),
-                        firstDate: DateTime.now(),
-                        lastDate: DateTime(2100),
+                    iconEnabledColor: Theme.of(context).colorScheme.onSurface,
+                    decoration: InputDecoration(
+                      labelText: "Привязанный счет",
+                      labelStyle: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 14,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.outlineVariant.withValues(alpha: 0.6),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      prefixIcon: Icon(
+                        Icons.account_balance_wallet_outlined,
+                        size: 20,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    items: bills.map((b) {
+                      final val = b['billId'] ?? b['id'];
+                      return DropdownMenuItem<dynamic>(
+                        value: val,
+                        child: Text(
+                          "${b['name']}",
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       );
-                      if (picked != null) {
-                        dateCtrl.text = DateFormat('yyyy-MM-dd').format(picked);
-                      }
-                    },
+                    }).toList(),
+                    onChanged: (val) =>
+                        setDialogState(() => currentBillVal = val),
+                    validator: (val) => val == null ? "Выберите счет" : null,
                   ),
                 ],
               ),
@@ -303,15 +544,14 @@ class GoalsListTabState extends State<GoalsListTab> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text("Отмена"),
+              child: const Text("ОТМЕНА", style: TextStyle(color: Colors.grey)),
             ),
-            ElevatedButton(
+            TextButton(
               onPressed: () async {
                 if (formKey.currentState!.validate() &&
                     currentBillVal != null) {
                   String dateStr = dateCtrl.text;
                   if (dateStr.contains("T")) dateStr = dateStr.split("T")[0];
-
                   final data = {
                     "name": nameCtrl.text,
                     "targetAmount":
@@ -320,249 +560,23 @@ class GoalsListTabState extends State<GoalsListTab> {
                     "targetDate": dateStr,
                     "billId": currentBillVal,
                   };
-
-                  bool success = await api.updateGoal(goal['id'], data);
-
-                  if (success && ctx.mounted) {
+                  if (await api.updateGoal(goal['id'], data) && ctx.mounted) {
                     Navigator.pop(ctx);
                     _loadData();
                   }
                 }
               },
-              child: const Text("Сохранить"),
+              child: Text(
+                "СОХРАНИТЬ",
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    if (isLoading) return const Center(child: CircularProgressIndicator());
-
-    return Scaffold(
-      body: goals.isEmpty
-          ? Center(
-              child: Text(
-                "Нет целей",
-                style: TextStyle(color: colors.onSurfaceVariant),
-              ),
-            )
-          : RefreshIndicator(
-              onRefresh: _loadData,
-              child: ListView.builder(
-                itemCount: goals.length,
-                padding: const EdgeInsets.all(15),
-                itemBuilder: (context, index) {
-                  final goal = goals[index];
-
-                  final double target = (goal['targetAmount'] as num)
-                      .toDouble();
-                  final double current = (goal['currentAmount'] ?? 0)
-                      .toDouble();
-
-                  final linkedBill = _findBill(goal['billId']);
-
-                  String symbol = goal['currencyCode'] ?? '';
-                  String walletName = "Счет не найден";
-
-                  if (linkedBill != null) {
-                    walletName = linkedBill['name'] ?? "Без названия";
-                    if (symbol.isEmpty) symbol = _getCurrency(linkedBill);
-                  }
-
-                  double progress = target == 0 ? 0 : (current / target);
-                  if (progress > 1.0) progress = 1.0;
-                  int percent = (progress * 100).toInt();
-
-                  return Card(
-                    elevation: 2,
-                    margin: const EdgeInsets.only(bottom: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(15.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  goal['name'] ?? "Цель",
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              PopupMenuButton<String>(
-                                onSelected: (val) async {
-                                  if (val == 'edit') _showEditDialog(goal);
-                                  if (val == 'delete') {
-                                    if (await api.deleteGoal(goal['id'])) {
-                                      _loadData();
-                                    }
-                                  }
-                                },
-                                itemBuilder: (context) => [
-                                  const PopupMenuItem(
-                                    value: 'edit',
-                                    child: Text("Изменить"),
-                                  ),
-                                  const PopupMenuItem(
-                                    value: 'delete',
-                                    child: Text(
-                                      "Удалить",
-                                      style: TextStyle(color: Colors.red),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                "Накоплено: $current $symbol",
-                                style: const TextStyle(
-                                  color: Colors.green,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                "Цель: $target $symbol",
-                                style: TextStyle(
-                                  color: colors.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(10),
-                                      child: LinearProgressIndicator(
-                                        value: progress,
-                                        minHeight: 10,
-                                        backgroundColor:
-                                            colors.surfaceContainerHighest,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                              percent >= 100
-                                                  ? Colors.green
-                                                  : colors.primary,
-                                            ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 5),
-                                    Text(
-                                      percent >= 100
-                                          ? "Цель достигнута! 🎉"
-                                          : "Осталось: ${(target - current).toStringAsFixed(2)} $symbol",
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: colors.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              if (percent < 100)
-                                IconButton.filled(
-                                  onPressed: () => _showDepositDialog(goal),
-                                  icon: const Icon(Icons.add),
-                                  tooltip: "Внести",
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Colors.green,
-                                    foregroundColor: Colors.white,
-                                  ),
-                                )
-                              else
-                                const Icon(
-                                  Icons.check_circle,
-                                  color: Colors.green,
-                                  size: 30,
-                                ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 10),
-                          const Divider(height: 1, thickness: 0.5),
-                          const SizedBox(height: 8),
-
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.account_balance_wallet,
-                                      size: 14,
-                                      color: linkedBill != null
-                                          ? colors.onSurfaceVariant
-                                          : Colors.red,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Flexible(
-                                      // ЗДЕСЬ ИЗМЕНЕНИЕ: УБРАЛ ID
-                                      child: Text(
-                                        walletName,
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: linkedBill != null
-                                              ? colors.onSurfaceVariant
-                                              : Colors.red,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.calendar_month,
-                                    size: 14,
-                                    color: colors.onSurfaceVariant,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    "${goal['targetDate']}".split('T')[0],
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: colors.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
     );
   }
 }

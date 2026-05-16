@@ -5,16 +5,13 @@ import 'package:my_app/Pages/login.dart';
 import 'package:my_app/Pages/Register/register.dart';
 import 'package:my_app/helpers/StorageService.dart';
 
-// 1. СОЗДАЕМ ГЛОБАЛЬНЫЙ КЛЮЧ
-// Он должен быть объявлен вне классов, чтобы был доступен из других файлов
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-// Тот самый сочный фиолетовый (Vibrant Purple)
 const Color primaryAccent = Color(0xFF8B5CF6);
 const Color onPrimaryColor = Colors.white;
 
 // Темная тема
-const Color darkBg = Color(0xFF0F0B15); // Сделал чуть глубже (темнее)
+const Color darkBg = Color(0xFF0F0B15);
 const Color darkCard = Color(0xFF1A1622);
 const Color darkOutline = Color(0xFF37333D);
 
@@ -74,9 +71,9 @@ class _MyAppState extends State<MyApp> {
     String themeString;
     if (mode == ThemeMode.light) {
       themeString = 'light';
-    } else if (mode == ThemeMode.dark){
+    } else if (mode == ThemeMode.dark) {
       themeString = 'dark';
-    }else{
+    } else {
       themeString = 'system';
     }
     StorageService.setThemeMode(themeString);
@@ -89,7 +86,7 @@ class _MyAppState extends State<MyApp> {
       debugShowCheckedModeBanner: false,
       themeMode: _themeMode,
 
-      // --- СВЕТЛАЯ ТЕМА (Насыщенная) ---
+      // --- СВЕТЛАЯ ТЕМА ---
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
@@ -97,28 +94,24 @@ class _MyAppState extends State<MyApp> {
           primary: primaryAccent,
           onPrimary: onPrimaryColor,
           secondary: const Color(0xFF7C3AED),
-          surface: Colors.white,
+          surface: lightBg,
+          surfaceContainer: Colors.white,
+          onSurface: Colors.black87,
           outlineVariant: lightOutline,
         ),
-        // ИСПРАВЛЕНИЕ: Добавляем стили для AppBar и кнопок
         appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black87, // Цвет иконок и текста в AppBar
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.black87,
           elevation: 0,
           centerTitle: false,
         ),
-        // Стиль для текстовых кнопок
         textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            foregroundColor: primaryAccent, // Цвет текста кнопок
-          ),
+          style: TextButton.styleFrom(foregroundColor: primaryAccent),
         ),
-        // Стиль для иконок
         iconTheme: const IconThemeData(color: Colors.black87),
         cardTheme: CardThemeData(
           color: Colors.white,
           elevation: 2,
-          shadowColor: primaryAccent.withValues(alpha: 0.1),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
             side: BorderSide(color: lightOutline),
@@ -126,7 +119,7 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
 
-      // --- ТЕМНАЯ ТЕМА (Неоновая) ---
+      // --- ТЕМНАЯ ТЕМА ---
       darkTheme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
@@ -134,23 +127,21 @@ class _MyAppState extends State<MyApp> {
           primary: primaryAccent,
           onPrimary: onPrimaryColor,
           secondary: const Color(0xFFA78BFA),
-          surface: darkBg, // Фон приложения
-          surfaceContainer: darkCard, // Фон карточек и диалогов
-          onSurface: Colors.white, // Основной текст
+          surface: darkBg,
+          surfaceContainer: darkCard,
+          onSurface: Colors.white,
           outlineVariant: darkOutline,
         ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: darkBg,
-          foregroundColor: Colors.white, // Белые иконки и текст
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
           elevation: 0,
         ),
-        // Это исправит цвета в DatePicker и других системных окнах
-        datePickerTheme: DatePickerThemeData(
+        datePickerTheme: const DatePickerThemeData(
           headerBackgroundColor: primaryAccent,
           headerForegroundColor: Colors.white,
           surfaceTintColor: Colors.transparent,
         ),
-        // ...
       ),
 
       initialRoute: widget.isAuth ? '/home' : '/login',
