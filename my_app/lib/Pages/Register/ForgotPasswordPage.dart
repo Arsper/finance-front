@@ -16,7 +16,10 @@ class ForgotPasswordPage extends StatefulWidget {
 }
 
 class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
-  final _formKey = GlobalKey<FormState>();
+  final List<GlobalKey<FormState>> _formKeys = List.generate(
+    3,
+    (_) => GlobalKey<FormState>(),
+  );
   final PageController _pageController = PageController();
 
   final UserRemoteDataSource _dataSource = UserRemoteDataSource(
@@ -29,7 +32,6 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final _confirmPassController = TextEditingController();
   final _customDomainController = TextEditingController();
 
-  // Параметры доменов (те же, что в регистрации)
   final List<String> _domains = [
     "@gmail.com",
     "@mail.ru",
@@ -62,17 +64,17 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     super.dispose();
   }
 
-  // --- ЛОГИКА ---
-
   Future<void> _nextStep() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKeys[_currentStep].currentState!.validate()) return;
+
+    FocusScope.of(context).unfocus();
 
     setState(() => _isLoading = true);
 
     try {
       if (_currentStep == 0) {
         setState(() => _emailError = null);
-        final fullEmail = _getFullEmail(); // Получаем полный адрес
+        final fullEmail = _getFullEmail();
         final success = await _dataSource.sendForgotPasswordCode(fullEmail);
         if (success) {
           _animateToStep(1);
@@ -89,7 +91,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           return;
         }
 
-        final fullEmail = _getFullEmail(); // И ЗДЕСЬ ТОЖЕ ПОЛНЫЙ EMAIL
+        final fullEmail = _getFullEmail();
         final isValid = await _dataSource.verifyRegistrationCode(
           fullEmail,
           _otpController.text.trim(),
@@ -135,13 +137,13 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   }
 
   void _handleBack() {
+    FocusScope.of(context).unfocus();
     if (_currentStep == 0) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginPage()),
         (route) => false,
       );
     } else {
-      // При нажатии "назад" на любом этапе сбрасываем всё и идем в начало
       setState(() {
         _currentStep = 0;
         _clearAllFields();
@@ -170,8 +172,6 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     _selectedDomain = "@gmail.com";
   }
 
-  // --- UI COMPONENTS ---
-
   Widget _buildPasswordRequirement(
     String label,
     bool isMet,
@@ -186,7 +186,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             size: 16,
             color: isMet
                 ? Colors.green
-                : colorScheme.onSurfaceVariant.withOpacity(0.5),
+                : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
           ),
           const SizedBox(width: 8),
           Text(
@@ -214,7 +214,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             border: Border.all(
               color: _otpError != null
                   ? Colors.redAccent
-                  : colorScheme.outlineVariant.withOpacity(0.5),
+                  : colorScheme.outlineVariant.withValues(alpha: 0.5),
             ),
           ),
           child: Stack(
@@ -251,7 +251,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                   opacity: 0,
                   child: TextFormField(
                     controller: _otpController,
-                    autofocus: true,
+                    autofocus: _currentStep == 1,
+                    enabled: _currentStep == 1,
                     keyboardType: TextInputType.number,
                     inputFormatters: [
                       FilteringTextInputFormatter.digitsOnly,
@@ -277,15 +278,13 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     );
   }
 
-  // --- СТАНДАРТНЫЙ BUILD И ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ---
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
     return Scaffold(
-      backgroundColor: colorScheme.background,
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -301,13 +300,13 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           children: [
             _buildProgressBar(colorScheme),
             Expanded(
-              child: Form(
-                key: _formKey,
-                child: PageView(
-                  controller: _pageController,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [
-                    _stepWrapper(
+              child: PageView(
+                controller: _pageController,
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  Form(
+                    key: _formKeys[0],
+                    child: _stepWrapper(
                       "Почта",
                       "Введите email, привязанный к вашему аккаунту.",
                       Column(
@@ -323,8 +322,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                     label: "Имя почты",
                                     controller: _emailController,
                                     maxLength: 32,
-                                    validator: AppValidators
-                                        .emailName, // Используй раздельный валидатор
+                                    validator: AppValidators.emailName,
                                     onChanged: (v) =>
                                         setState(() => _emailError = null),
                                   ),
@@ -342,8 +340,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                         )
                                       : Container(
                                           decoration: BoxDecoration(
-                                            color: colorScheme.surfaceVariant
-                                                .withOpacity(0.3),
+                                            color: colorScheme
+                                                .surfaceContainerHighest
+                                                .withValues(alpha: 0.3),
                                             borderRadius: BorderRadius.circular(
                                               12,
                                             ),
@@ -352,7 +351,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                             ),
                                           ),
                                           child: DropdownButtonFormField<String>(
-                                            value: _selectedDomain,
+                                            initialValue: _selectedDomain,
                                             decoration: const InputDecoration(
                                               border: InputBorder.none,
                                               contentPadding:
@@ -366,6 +365,32 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                             icon: const Icon(
                                               Icons.arrow_drop_down,
                                             ),
+                                            onChanged: _currentStep != 0
+                                                ? null
+                                                : (newValue) {
+                                                    setState(() {
+                                                      if (newValue ==
+                                                          "Свой...") {
+                                                        _isCustomDomain = true;
+                                                        _customDomainController
+                                                                .text =
+                                                            "@";
+                                                        _customDomainController
+                                                                .selection =
+                                                            TextSelection.fromPosition(
+                                                              TextPosition(
+                                                                offset:
+                                                                    _customDomainController
+                                                                        .text
+                                                                        .length,
+                                                              ),
+                                                            );
+                                                      } else {
+                                                        _selectedDomain =
+                                                            newValue!;
+                                                      }
+                                                    });
+                                                  },
                                             items: _domains.map((String value) {
                                               return DropdownMenuItem<String>(
                                                 value: value,
@@ -377,34 +402,13 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                                 ),
                                               );
                                             }).toList(),
-                                            onChanged: (newValue) {
-                                              setState(() {
-                                                if (newValue == "Свой...") {
-                                                  _isCustomDomain = true;
-                                                  _customDomainController.text =
-                                                      "@";
-                                                  _customDomainController
-                                                          .selection =
-                                                      TextSelection.fromPosition(
-                                                        TextPosition(
-                                                          offset:
-                                                              _customDomainController
-                                                                  .text
-                                                                  .length,
-                                                        ),
-                                                      );
-                                                } else {
-                                                  _selectedDomain = newValue!;
-                                                }
-                                              });
-                                            },
                                           ),
                                         ),
                                 ),
                               ],
                             ),
                           ),
-                          if (_isCustomDomain)
+                          if (_isCustomDomain && _currentStep == 0)
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton(
@@ -431,13 +435,21 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                       ),
                       colorScheme,
                     ),
-                    _stepWrapper(
+                  ),
+
+                  Form(
+                    key: _formKeys[1],
+                    child: _stepWrapper(
                       "Подтверждение",
                       "Введите код из письма.",
                       _buildOtpSection(colorScheme),
                       colorScheme,
                     ),
-                    _stepWrapper(
+                  ),
+
+                  Form(
+                    key: _formKeys[2],
+                    child: _stepWrapper(
                       "Новый пароль",
                       "Придумайте сложный пароль.",
                       Column(
@@ -467,9 +479,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: colorScheme.surfaceVariant.withOpacity(
-                                0.3,
-                              ),
+                              color: colorScheme.surfaceContainerHighest
+                                  .withValues(alpha: 0.3),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Column(
@@ -514,8 +525,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                       ),
                       colorScheme,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
             _buildBottomNav(colorScheme),
@@ -625,12 +636,14 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         const SizedBox(height: 12),
         _canResend
             ? TextButton(
-                onPressed: () async {
-                  _startTimer();
-                  await _dataSource.sendForgotPasswordCode(
-                    _getFullEmail(),
-                  );
-                },
+                onPressed: _currentStep != 1
+                    ? null
+                    : () async {
+                        _startTimer();
+                        await _dataSource.sendForgotPasswordCode(
+                          _getFullEmail(),
+                        );
+                      },
                 child: Text(
                   "Отправить еще раз",
                   style: TextStyle(

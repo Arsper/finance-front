@@ -5,7 +5,7 @@ import 'package:my_app/api/data/%D1%81urrency.dart';
 import 'package:my_app/api/data/dailyStat.dart';
 import 'package:my_app/api/data/ratePoint.dart';
 import 'package:my_app/api/url/urlParametrs.dart';
-import 'package:my_app/helpers/StorageService.dart';
+import 'package:my_app/helpers/AuthStorageService.dart';
 
 class UserRemoteDataSource {
   final Dio dio;
@@ -33,9 +33,15 @@ class UserRemoteDataSource {
 
       if (response.statusCode == 200) {
         final token = response.data['token'];
+        final refreshToken = response.data['refreshToken'];
 
         if (token != null) {
-          await StorageService.saveToken(token);
+          await AuthStorageService.saveAuthData(
+            token: token,
+            refreshToken: refreshToken,
+            userId: response.data['id'] ?? 0,
+            login: response.data['login'] ?? email,
+          );
           return true;
         }
       }
@@ -54,12 +60,16 @@ class UserRemoteDataSource {
       );
 
       if (response.statusCode == 200) {
-        // 3. Извлекаем JWT токен, который сгенерировал твой Spring Boot
         final token = response.data['token'];
+        final refreshToken = response.data['refreshToken'];
 
         if (token != null) {
-          // 4. Сохраняем его локально для будущих запросов к API
-          await StorageService.saveToken(token);
+          await AuthStorageService.saveAuthData(
+            token: token,
+            refreshToken: refreshToken,
+            userId: response.data['id'] ?? 0,
+            login: response.data['login'] ?? '',
+          );
           return true;
         }
       }
@@ -70,14 +80,67 @@ class UserRemoteDataSource {
     }
   }
 
+  Future<bool> registerUser(
+    String login,
+    String email,
+    String password,
+    String emailCode,
+  ) async {
+    try {
+      final response = await dio.post(
+        UrlParameters.registrationUrl,
+        data: {
+          'login': login,
+          'email': email,
+          'password': password,
+          'emailCode': emailCode,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final token = response.data['token'];
+        final refreshToken = response.data['refreshToken'];
+
+        if (token != null) {
+          // ИСПРАВЛЕНО: используем AuthStorageService
+          await AuthStorageService.saveAuthData(
+            token: token,
+            refreshToken: refreshToken,
+            userId: response.data['id'] ?? 0,
+            login: response.data['login'] ?? login,
+          );
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error registering: $e');
+      return false;
+    }
+  }
+
+  Future<void> logout() async {
+    try {
+      final refreshToken = await AuthStorageService.getRefreshToken();
+      if (refreshToken != null) {
+        await dio.post(
+          UrlParameters.refreshToken,
+          data: {'refreshToken': refreshToken},
+        );
+      }
+    } catch (e) {
+      debugPrint("Error during logout: $e");
+    } finally {
+      await AuthStorageService.clearAuthData();
+    }
+  }
+
   Future<bool> sendRegistrationCode(String email) async {
     try {
       final response = await dio.post(
         UrlParameters.registerSendCode,
         queryParameters: {'email': email},
-        options: Options(
-          responseType: ResponseType.plain,
-        ), // Добавьте это, если бэк шлет текст
+        options: Options(responseType: ResponseType.plain),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -90,11 +153,9 @@ class UserRemoteDataSource {
       final response = await dio.post(
         UrlParameters.verifyCode,
         queryParameters: {'email': email, 'code': code},
-        // Указываем, что сервер возвращает текст, а не JSON
         options: Options(responseType: ResponseType.plain),
       );
 
-      // Теперь Dio корректно получит "Код верный" и вернет 200
       return response.statusCode == 200;
     } on DioException catch (e) {
       debugPrint('Ошибка верификации (сервер): ${e.response?.data}');
@@ -105,19 +166,14 @@ class UserRemoteDataSource {
     }
   }
 
-  // --- МЕТОДЫ ДЛЯ СБРОСА ПАРОЛЯ ---
-
   Future<bool> sendForgotPasswordCode(String email) async {
     try {
       final response = await dio.post(
         UrlParameters.forgotSendCode,
-        // Используем queryParameters, так как в Java стоит @RequestParam
         queryParameters: {'email': email},
-        // Указываем, что ждем обычную строку, если сервер шлет текст
         options: Options(responseType: ResponseType.plain),
       );
 
-      // Если бэкенд вернул 200, значит всё успешно
       return response.statusCode == 200;
     } catch (e) {
       debugPrint('Ошибка в источнике данных (sendForgotPasswordCode): $e');
@@ -133,11 +189,9 @@ class UserRemoteDataSource {
     try {
       final response = await dio.post(
         UrlParameters.forgotReset,
-        // ИЗМЕНЕНО: используем data вместо queryParameters
         data: {'email': email, 'code': code, 'newPassword': newPassword},
         options: Options(
           responseType: ResponseType.plain,
-          // Убедись, что заголовок установлен (хотя Dio делает это сам для Map)
           contentType: 'application/json',
         ),
       );
@@ -437,7 +491,7 @@ class UserRemoteDataSource {
     String? endDate,
   }) async {
     try {
-      final token = StorageService.getToken();
+      final token = await AuthStorageService.getToken();
       final response = await dio.get(
         UrlParameters.statsCategoriesUrl,
         queryParameters: {
@@ -467,7 +521,7 @@ class UserRemoteDataSource {
     String? endDate,
   }) async {
     try {
-      final token = StorageService.getToken();
+      final token = await AuthStorageService.getToken();
 
       final response = await dio.get(
         UrlParameters.statsDailyUrl,

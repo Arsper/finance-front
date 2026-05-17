@@ -3,8 +3,9 @@ import 'package:my_app/Pages/BalanceTab.dart';
 import 'package:my_app/Pages/ExchangeRatesPage.dart';
 import 'package:my_app/Pages/FinancialGoals/FinancialCalculationPage.dart';
 import 'package:my_app/Pages/RecurringPaymen/RecurringPaymentsPage.dart';
-import 'package:my_app/helpers/StorageService.dart';
 import 'package:my_app/main.dart';
+import 'package:my_app/api/sources/remoteDataSource.dart';
+import 'package:my_app/api/DioClient.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -29,6 +30,21 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  Future<void> _logout() async {
+    try {
+      final dataSource = UserRemoteDataSource(dio: Dioclient.instance);
+      await dataSource.logout();
+    } catch (e) {
+      print("Error during logout: $e");
+    } finally {
+      if (mounted) {
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil('/login', (route) => false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -36,12 +52,10 @@ class _HomePageState extends State<HomePage> {
         title: const Text('Умный кошелёк'),
         centerTitle: true,
         actions: [
-          // --- ВОТ ВАШ "ГЛАЗИК" (Кнопка смены темы) ---
           PopupMenuButton<ThemeMode>(
-            icon: const Icon(Icons.brightness_6), // Иконка "Солнце/Луна"
+            icon: const Icon(Icons.brightness_6),
             tooltip: 'Сменить тему',
             onSelected: (ThemeMode mode) {
-              // Обращаемся к main.dart и меняем тему
               MyApp.of(context).changeTheme(mode);
             },
             itemBuilder: (BuildContext context) => <PopupMenuEntry<ThemeMode>>[
@@ -68,19 +82,10 @@ class _HomePageState extends State<HomePage> {
               ),
             ],
           ),
-
-          // Кнопка выхода
           IconButton(
             tooltip: 'Выйти',
             icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await StorageService.clear();
-              if (context.mounted) {
-                Navigator.of(
-                  context,
-                ).pushNamedAndRemoveUntil('/login', (route) => false);
-              }
-            },
+            onPressed: _logout,
           ),
         ],
       ),

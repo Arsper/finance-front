@@ -10,6 +10,7 @@ class UrlParameters {
   static String forgotSendCode = getFullUrl('auth/forgot-password/send-code');
   static String forgotReset = getFullUrl('auth/forgot-password/reset');
   static String googleRegister = getFullUrl('auth/google');
+  static String refreshToken = getFullUrl('auth/refresh-token');
 
   static String currenciesUrl = getFullUrl('currencies');
   static String billsUrl = getFullUrl('bills');

@@ -8,7 +8,7 @@ class WalletFormSheet extends StatefulWidget {
   final Map<String, dynamic>? existingWallet;
   final List<Currency> currencies;
   final Function(Map<String, dynamic>) onSave;
-  final VoidCallback? onDelete; // Добавили колбэк удаления
+  final VoidCallback? onDelete;
 
   const WalletFormSheet({
     super.key,
@@ -28,6 +28,22 @@ class WalletFormSheetState extends State<WalletFormSheet> {
   late TextEditingController balanceController;
   late TextEditingController currencyController;
   int? selectedCurrencyId;
+
+  final List<Currency> _fallbackCurrencies = [
+    Currency(idCurrencies: 1, code: 'USD', name: 'US Dollar', symbol: '\$'),
+
+    Currency(idCurrencies: 2, code: 'EUR', name: 'Euro', symbol: '€'),
+    Currency(idCurrencies: 3, code: 'RUB', name: 'Russian Ruble', symbol: '₽'),
+    Currency(
+      idCurrencies: 4,
+      code: 'BYN',
+      name: 'Belarusian Ruble',
+      symbol: 'Б',
+    ),
+  ];
+
+  List<Currency> get _effectiveCurrencies =>
+      widget.currencies.isNotEmpty ? widget.currencies : _fallbackCurrencies;
 
   @override
   void initState() {
@@ -49,7 +65,7 @@ class WalletFormSheetState extends State<WalletFormSheet> {
     if (selectedCurrencyId == null &&
         widget.existingWallet?['currencyCode'] != null) {
       try {
-        selectedCurrencyId = widget.currencies
+        selectedCurrencyId = _effectiveCurrencies
             .firstWhere((c) => c.code == widget.existingWallet!['currencyCode'])
             .idCurrencies;
       } catch (_) {}
@@ -57,15 +73,15 @@ class WalletFormSheetState extends State<WalletFormSheet> {
 
     String initialCode = '???';
     if (selectedCurrencyId != null) {
-      final curr = widget.currencies.firstWhere(
+      final curr = _effectiveCurrencies.firstWhere(
         (c) => c.idCurrencies == selectedCurrencyId,
         orElse: () =>
             Currency(idCurrencies: 0, code: '???', name: '', symbol: ''),
       );
       initialCode = curr.code;
-    } else if (widget.currencies.isNotEmpty) {
-      selectedCurrencyId = widget.currencies.first.idCurrencies;
-      initialCode = widget.currencies.first.code;
+    } else if (_effectiveCurrencies.isNotEmpty) {
+      selectedCurrencyId = _effectiveCurrencies.first.idCurrencies;
+      initialCode = _effectiveCurrencies.first.code;
     }
 
     currencyController = TextEditingController(text: initialCode);
@@ -90,14 +106,13 @@ class WalletFormSheetState extends State<WalletFormSheet> {
         bottom: MediaQuery.of(context).viewInsets.bottom + 20,
         left: 20,
         right: 20,
-        top: 10, // Уменьшен для заголовка
+        top: 10,
       ),
       child: Form(
         key: _formKey,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ЗАГОЛОВОК С КОРЗИНОЙ В УГЛУ
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -180,15 +195,31 @@ class WalletFormSheetState extends State<WalletFormSheet> {
               ),
               onPressed: () {
                 if (_formKey.currentState!.validate()) {
+                  final selectedCurrency = _effectiveCurrencies.firstWhere(
+                    (c) => c.idCurrencies == selectedCurrencyId,
+                    orElse: () => Currency(
+                      idCurrencies: 0,
+                      code: 'BYN',
+                      name: '',
+                      symbol: 'Б',
+                    ),
+                  );
+
                   widget.onSave({
                     "name": nameController.text.trim(),
                     "type": widget.existingWallet?['type'] ?? 'Debit',
+                    "currentBalance":
+                        double.tryParse(
+                          balanceController.text.replaceAll(',', '.'),
+                        ) ??
+                        0.0,
                     "startBalance":
                         double.tryParse(
                           balanceController.text.replaceAll(',', '.'),
                         ) ??
                         0.0,
                     "currencyId": selectedCurrencyId,
+                    "currencyCode": selectedCurrency.code,
                   });
                 }
               },
@@ -222,9 +253,9 @@ class WalletFormSheetState extends State<WalletFormSheet> {
             Flexible(
               child: ListView.builder(
                 shrinkWrap: true,
-                itemCount: widget.currencies.length,
+                itemCount: _effectiveCurrencies.length,
                 itemBuilder: (context, index) {
-                  final curr = widget.currencies[index];
+                  final curr = _effectiveCurrencies[index];
                   final bool isSelected =
                       curr.idCurrencies == selectedCurrencyId;
                   return ListTile(

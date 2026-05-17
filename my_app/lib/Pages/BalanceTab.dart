@@ -4,7 +4,9 @@ import 'package:my_app/CustomerWidgets/WalletFormSheet.dart';
 import 'package:my_app/Pages/Transactions/TransactionsPage.dart';
 import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/data/сurrency.dart';
+import 'package:my_app/api/sources/local_storage_service.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
+import 'package:my_app/repositories/wallet_repository.dart';
 
 class BalanceTab extends StatefulWidget {
   const BalanceTab({super.key});
@@ -14,9 +16,7 @@ class BalanceTab extends StatefulWidget {
 }
 
 class _BalanceTabState extends State<BalanceTab> {
-  final UserRemoteDataSource api = UserRemoteDataSource(
-    dio: Dioclient.instance,
-  );
+  late final WalletRepository walletRepository;
 
   List<dynamic> wallets = [];
   List<Currency> currencies = [];
@@ -25,6 +25,10 @@ class _BalanceTabState extends State<BalanceTab> {
   @override
   void initState() {
     super.initState();
+    walletRepository = WalletRepository(
+      remoteDataSource: UserRemoteDataSource(dio: Dioclient.instance),
+      localDataSource: LocalStorageService(),
+    );
     _refreshData();
   }
 
@@ -38,8 +42,8 @@ class _BalanceTabState extends State<BalanceTab> {
     if (!mounted) return;
     setState(() => isLoading = true);
     try {
-      final w = await api.getWallets();
-      final c = await api.getCurrencies();
+      final w = await walletRepository.getWallets();
+      final c = await walletRepository.getCurrencies();
       if (mounted) {
         setState(() {
           wallets = w;
@@ -105,28 +109,24 @@ class _BalanceTabState extends State<BalanceTab> {
           );
 
           if (confirm && bottomSheetContext.mounted) {
-            // Закрываем шторку
             Navigator.pop(bottomSheetContext);
 
-            final success = await api.deleteWallet(id);
+            final success = await walletRepository.deleteWallet(id);
             if (success) {
               _refreshData();
             } else if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    "Не удалось удалить счет. Проверьте соединение.",
-                  ),
-                ),
+                const SnackBar(content: Text("Не удалось удалить счет.")),
               );
             }
           }
         },
         onSave: (data) async {
           final id = _getWalletId(existingWallet);
+
           bool ok = (id == null)
-              ? await api.addWallet(data)
-              : await api.updateWallet(id, data);
+              ? await walletRepository.addWallet(data)
+              : await walletRepository.updateWallet(id, data);
 
           if (ok) {
             _refreshData();
@@ -163,7 +163,38 @@ class _BalanceTabState extends State<BalanceTab> {
                   final double balanceValue = double.tryParse(balance) ?? 0.0;
                   final String code = wallet['currencyCode'] ?? '???';
 
-                  final String symbol = currencies
+                  final List<Currency> fallbackCurrencies = [
+                    Currency(
+                      idCurrencies: 1,
+                      code: 'USD',
+                      name: 'US Dollar',
+                      symbol: '\$',
+                    ),
+
+                    Currency(
+                      idCurrencies: 2,
+                      code: 'EUR',
+                      name: 'Euro',
+                      symbol: '€',
+                    ),
+                    Currency(
+                      idCurrencies: 3,
+                      code: 'RUB',
+                      name: 'Russian Ruble',
+                      symbol: '₽',
+                    ),
+                    Currency(
+                      idCurrencies: 4,
+                      code: 'BYN',
+                      name: 'Belarusian Ruble',
+                      symbol: 'Б',
+                    ),
+                  ];
+
+                  final List<Currency> effectiveCurrencies =
+                      currencies.isNotEmpty ? currencies : fallbackCurrencies;
+
+                  final String symbol = effectiveCurrencies
                       .firstWhere(
                         (c) => c.code == code,
                         orElse: () => Currency(
@@ -185,7 +216,9 @@ class _BalanceTabState extends State<BalanceTab> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                       side: BorderSide(
-                        color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                        color: colorScheme.outlineVariant.withValues(
+                          alpha: 0.5,
+                        ),
                       ),
                     ),
                     child: ListTile(
@@ -209,15 +242,34 @@ class _BalanceTabState extends State<BalanceTab> {
                         }
                       },
                       leading: CircleAvatar(
-                        backgroundColor: colorScheme.primary.withValues(alpha: 0.1),
+                        backgroundColor: colorScheme.primary.withValues(
+                          alpha: 0.1,
+                        ),
                         child: Icon(
                           Icons.account_balance_wallet,
                           color: colorScheme.primary,
                         ),
                       ),
-                      title: Text(
-                        name,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (wallet['isSynced'] == false) ...[
+                            const SizedBox(width: 6),
+                            const Icon(
+                              Icons.cloud_off,
+                              size: 16,
+                              color: Colors.orange,
+                            ),
+                          ],
+                        ],
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,

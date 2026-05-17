@@ -3,7 +3,8 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:my_app/Pages/home.dart';
 import 'package:my_app/Pages/login.dart';
 import 'package:my_app/Pages/Register/register.dart';
-import 'package:my_app/helpers/StorageService.dart';
+import 'package:my_app/helpers/AuthStorageService.dart';
+import 'package:my_app/helpers/ThemeStorageService.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -22,12 +23,12 @@ const Color lightOutline = Color(0xFFE5E7EB);
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ru', null);
-  await StorageService.init();
 
-  final String? token = StorageService.getToken();
-  final String savedTheme = StorageService.getThemeMode();
+  final bool isAuth = await AuthStorageService.isLoggedIn();
+  final String savedTheme =
+      await ThemeStorageService.getThemeMode(); // ← ИСПРАВЛЕНО
 
-  runApp(MyApp(isAuth: token != null, savedTheme: savedTheme));
+  runApp(MyApp(isAuth: isAuth, savedTheme: savedTheme));
 }
 
 class MyApp extends StatefulWidget {
@@ -63,7 +64,7 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  void changeTheme(ThemeMode mode) {
+  void changeTheme(ThemeMode mode) async {
     setState(() {
       _themeMode = mode;
     });
@@ -76,7 +77,7 @@ class _MyAppState extends State<MyApp> {
     } else {
       themeString = 'system';
     }
-    StorageService.setThemeMode(themeString);
+    await ThemeStorageService.saveThemeMode(themeString);
   }
 
   @override
@@ -85,8 +86,6 @@ class _MyAppState extends State<MyApp> {
       navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       themeMode: _themeMode,
-
-      // --- СВЕТЛАЯ ТЕМА ---
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
@@ -118,8 +117,6 @@ class _MyAppState extends State<MyApp> {
           ),
         ),
       ),
-
-      // --- ТЕМНАЯ ТЕМА ---
       darkTheme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
@@ -143,7 +140,6 @@ class _MyAppState extends State<MyApp> {
           surfaceTintColor: Colors.transparent,
         ),
       ),
-
       initialRoute: widget.isAuth ? '/home' : '/login',
       routes: {
         '/login': (context) => const LoginPage(),

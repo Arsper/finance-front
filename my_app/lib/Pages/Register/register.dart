@@ -6,9 +6,7 @@ import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
 import 'package:my_app/Pages/login.dart';
 import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
-import 'package:my_app/api/url/urlParametrs.dart';
 import 'package:my_app/helpers/validators.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -18,7 +16,10 @@ class RegisterPage extends StatefulWidget {
 }
 
 class _RegisterPageState extends State<RegisterPage> {
-  final _formKey = GlobalKey<FormState>();
+  final List<GlobalKey<FormState>> _formKeys = List.generate(
+    4,
+    (_) => GlobalKey<FormState>(),
+  );
   final PageController _pageController = PageController();
   late final UserRemoteDataSource _dataSource;
 
@@ -30,7 +31,6 @@ class _RegisterPageState extends State<RegisterPage> {
   final _confirmPassController = TextEditingController();
   final _customDomainController = TextEditingController();
 
-  // Локальные ошибки под полями
   String? _loginError;
   String? _emailError;
   String? _otpError;
@@ -71,8 +71,6 @@ class _RegisterPageState extends State<RegisterPage> {
     super.dispose();
   }
 
-  // --- ЛОГИКА ---
-
   void _showSnackBar(String message, {required bool isError}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -84,17 +82,17 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   void _handleBack() {
+    FocusScope.of(context).unfocus();
+
     if (_currentStep == 0) {
-      // Если мы и так на первом шаге, уходим на страницу логина
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const LoginPage()),
       );
     } else {
-      // Если мы на шаге 1, 2 или 3 — возвращаемся в самое начало и всё очищаем
       setState(() {
         _currentStep = 0;
-        _clearAllFields(); // Вызываем полную очистку
+        _clearAllFields();
       });
 
       _pageController.animateToPage(
@@ -105,7 +103,6 @@ class _RegisterPageState extends State<RegisterPage> {
     }
   }
 
-  // Добавь этот метод для полной очистки данных
   void _clearAllFields() {
     _loginController.clear();
     _emailController.clear();
@@ -117,7 +114,6 @@ class _RegisterPageState extends State<RegisterPage> {
     _isCustomDomain = false;
     _selectedDomain = "@gmail.com";
 
-    // Останавливаем таймер, если он работал
     _timer?.cancel();
     _secondsRemaining = 40;
     _canResend = false;
@@ -148,7 +144,9 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> _nextStep() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKeys[_currentStep].currentState!.validate()) return;
+
+    FocusScope.of(context).unfocus();
 
     setState(() => _isLoading = true);
     _clearErrors();
@@ -167,14 +165,12 @@ class _RegisterPageState extends State<RegisterPage> {
           canProceed = true;
         }
       } else if (_currentStep == 1) {
-        // Шаг 1: Отправка кода на Email
         final fullEmail = _getFullEmail();
         canProceed = await _dataSource.sendRegistrationCode(fullEmail);
         if (!canProceed) {
           setState(() => _emailError = "Данная почта уже занята или неверна");
         }
       } else if (_currentStep == 2) {
-        // Шаг 2: Проверка кода OTP
         if (_otpController.text.length < 6) {
           setState(() => _otpError = "Введите 6-значный код");
           canProceed = false;
@@ -189,7 +185,6 @@ class _RegisterPageState extends State<RegisterPage> {
           }
         }
       } else if (_currentStep == 3) {
-        // Шаг 3: Финальная регистрация
         await _submit();
         return;
       }
@@ -217,50 +212,26 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> _submit() async {
     setState(() => _isLoading = true);
 
-    final payload = {
-      'login': _loginController.text.trim(),
-      'email': _getFullEmail(),
-      'password': _passController.text,
-      'emailCode': _otpController.text.trim(),
-    };
-
     try {
-      final response = await Dioclient.instance.post(
-        UrlParameters.registrationUrl,
-        data: payload,
+      final success = await _dataSource.registerUser(
+        _loginController.text.trim(),
+        _getFullEmail(),
+        _passController.text,
+        _otpController.text.trim(),
       );
 
-      if (response.statusCode == 200 && mounted) {
-        await _saveUserData(response.data);
+      if (success && mounted) {
         Navigator.of(
           context,
         ).pushNamedAndRemoveUntil('/home', (route) => false);
+      } else {
+        _showSnackBar("Ошибка регистрации. Попробуйте позже.", isError: true);
       }
-    } on DioException catch (e) {
-      _showSnackBar("Ошибка сервера: ${e.response?.statusCode}", isError: true);
-
-      final errorMessage =
-          e.response?.data?.toString() ?? "Ошибка сервера (500)";
-      _showSnackBar(errorMessage, isError: true);
     } catch (e) {
-      _showSnackBar("Неизвестная ошибка: $e", isError: true);
+      _showSnackBar("Ошибка: $e", isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  Future<void> _saveUserData(Map<String, dynamic> data) async {
-    final String token = data['token'];
-    final int userId = data['id'];
-    final String login = data['login'] ?? "";
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('token', token);
-    await prefs.setInt('userId', userId);
-    await prefs.setString('userLogin', login);
-
-    // ВАЖНО: Добавляем токен в дефолтные заголовки Dio для текущей сессии
-    Dioclient.instance.options.headers["Authorization"] = "Bearer $token";
   }
 
   String _getFullEmail() {
@@ -271,15 +242,13 @@ class _RegisterPageState extends State<RegisterPage> {
     return "$name$domain";
   }
 
-  // --- UI ---
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
     return Scaffold(
-      backgroundColor: colorScheme.background,
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -288,7 +257,7 @@ class _RegisterPageState extends State<RegisterPage> {
           "Регистрация",
           style: TextStyle(
             fontSize: 18,
-            color: colorScheme.onBackground,
+            color: colorScheme.onSurface,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -296,7 +265,7 @@ class _RegisterPageState extends State<RegisterPage> {
         leading: IconButton(
           icon: Icon(
             Icons.arrow_back_ios_new,
-            color: colorScheme.onBackground,
+            color: colorScheme.onSurface,
             size: 22,
           ),
           onPressed: _isLoading ? null : _handleBack,
@@ -307,13 +276,13 @@ class _RegisterPageState extends State<RegisterPage> {
           children: [
             _buildProgressBar(colorScheme),
             Expanded(
-              child: Form(
-                key: _formKey,
-                child: PageView(
-                  controller: _pageController,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [
-                    _stepWrapper(
+              child: PageView(
+                controller: _pageController,
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  Form(
+                    key: _formKeys[0],
+                    child: _stepWrapper(
                       "Логин",
                       "Придумайте уникальное имя для входа в систему.",
                       CustomerEdit(
@@ -326,13 +295,15 @@ class _RegisterPageState extends State<RegisterPage> {
                       ),
                       colorScheme,
                     ),
-                    _stepWrapper(
+                  ),
+                  Form(
+                    key: _formKeys[1],
+                    child: _stepWrapper(
                       "Почта",
                       "Введите вашу почту. Мы пришлем на неё код.",
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // IntrinsicHeight заставляет Row подстроиться под высоту самого высокого соседа
                           IntrinsicHeight(
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -348,9 +319,7 @@ class _RegisterPageState extends State<RegisterPage> {
                                         setState(() => _emailError = null),
                                   ),
                                 ),
-                                const SizedBox(
-                                  width: 12,
-                                ), // Чуть увеличил отступ для красоты
+                                const SizedBox(width: 12),
                                 Expanded(
                                   flex: 2,
                                   child: _isCustomDomain
@@ -358,15 +327,14 @@ class _RegisterPageState extends State<RegisterPage> {
                                           label: "@домен",
                                           maxLength: 32,
                                           controller: _customDomainController,
-                                          validator: AppValidators
-                                              .emailDomain, // Используем новый валидатор домена
+                                          validator: AppValidators.emailDomain,
                                           onChanged: (v) => setState(() {}),
                                         )
                                       : Container(
-                                          // Убираем фиксированную высоту, используем декорацию
                                           decoration: BoxDecoration(
-                                            color: colorScheme.surfaceVariant
-                                                .withOpacity(0.3),
+                                            color: colorScheme
+                                                .surfaceContainerHighest
+                                                .withValues(alpha: 0.3),
                                             borderRadius: BorderRadius.circular(
                                               12,
                                             ),
@@ -375,8 +343,7 @@ class _RegisterPageState extends State<RegisterPage> {
                                             ),
                                           ),
                                           child: DropdownButtonFormField<String>(
-                                            // Используем FormField версию для лучшего выравнивания
-                                            value: _selectedDomain,
+                                            initialValue: _selectedDomain,
                                             decoration: const InputDecoration(
                                               border: InputBorder.none,
                                               contentPadding:
@@ -390,6 +357,32 @@ class _RegisterPageState extends State<RegisterPage> {
                                             icon: const Icon(
                                               Icons.arrow_drop_down,
                                             ),
+                                            onChanged: _currentStep != 1
+                                                ? null
+                                                : (newValue) {
+                                                    setState(() {
+                                                      if (newValue ==
+                                                          "Свой...") {
+                                                        _isCustomDomain = true;
+                                                        _customDomainController
+                                                                .text =
+                                                            "@";
+                                                        _customDomainController
+                                                                .selection =
+                                                            TextSelection.fromPosition(
+                                                              TextPosition(
+                                                                offset:
+                                                                    _customDomainController
+                                                                        .text
+                                                                        .length,
+                                                              ),
+                                                            );
+                                                      } else {
+                                                        _selectedDomain =
+                                                            newValue!;
+                                                      }
+                                                    });
+                                                  },
                                             items: _domains.map((String value) {
                                               return DropdownMenuItem<String>(
                                                 value: value,
@@ -401,34 +394,13 @@ class _RegisterPageState extends State<RegisterPage> {
                                                 ),
                                               );
                                             }).toList(),
-                                            onChanged: (newValue) {
-                                              setState(() {
-                                                if (newValue == "Свой...") {
-                                                  _isCustomDomain = true;
-                                                  _customDomainController.text =
-                                                      "@";
-                                                  _customDomainController
-                                                          .selection =
-                                                      TextSelection.fromPosition(
-                                                        TextPosition(
-                                                          offset:
-                                                              _customDomainController
-                                                                  .text
-                                                                  .length,
-                                                        ),
-                                                      );
-                                                } else {
-                                                  _selectedDomain = newValue!;
-                                                }
-                                              });
-                                            },
                                           ),
                                         ),
                                 ),
                               ],
                             ),
                           ),
-                          if (_isCustomDomain)
+                          if (_isCustomDomain && _currentStep == 1)
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton(
@@ -455,13 +427,19 @@ class _RegisterPageState extends State<RegisterPage> {
                       ),
                       colorScheme,
                     ),
-                    _stepWrapper(
+                  ),
+                  Form(
+                    key: _formKeys[2],
+                    child: _stepWrapper(
                       "Подтверждение",
                       "Введите 6-значный код из письма.",
                       _buildOtpSection(colorScheme),
                       colorScheme,
                     ),
-                    _stepWrapper(
+                  ),
+                  Form(
+                    key: _formKeys[3],
+                    child: _stepWrapper(
                       "Пароль",
                       "Установите пароль для защиты аккаунта.",
                       Column(
@@ -488,13 +466,11 @@ class _RegisterPageState extends State<RegisterPage> {
                             onChanged: (v) => setState(() {}),
                           ),
                           const SizedBox(height: 20),
-                          // Блок требований перенесен под повтор пароля
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: colorScheme.surfaceVariant.withOpacity(
-                                0.3,
-                              ),
+                              color: colorScheme.surfaceContainerHighest
+                                  .withValues(alpha: 0.3),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Column(
@@ -539,8 +515,8 @@ class _RegisterPageState extends State<RegisterPage> {
                       ),
                       colorScheme,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
             _buildBottomNav(colorScheme),
@@ -617,7 +593,7 @@ class _RegisterPageState extends State<RegisterPage> {
             border: Border.all(
               color: _otpError != null
                   ? Colors.redAccent
-                  : colorScheme.outlineVariant.withOpacity(0.5),
+                  : colorScheme.outlineVariant.withValues(alpha: 0.5),
             ),
           ),
           child: Stack(
@@ -625,9 +601,7 @@ class _RegisterPageState extends State<RegisterPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: List.generate(6, (index) {
-                  // Логика маскировки:
                   bool hasCharacter = _otpController.text.length > index;
-
                   return Container(
                     width: 45,
                     height: 55,
@@ -642,9 +616,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      hasCharacter
-                          ? "●"
-                          : "", // Показываем точку, если символ введен
+                      hasCharacter ? "●" : "",
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -658,8 +630,8 @@ class _RegisterPageState extends State<RegisterPage> {
                   opacity: 0,
                   child: TextFormField(
                     controller: _otpController,
-                    autofocus: true,
-                    // Важно оставить keyboardType number, чтобы вызывалась цифровая клавиатура
+                    autofocus: _currentStep == 2,
+                    enabled: _currentStep == 2,
                     keyboardType: TextInputType.number,
                     inputFormatters: [
                       FilteringTextInputFormatter.digitsOnly,
@@ -697,19 +669,21 @@ class _RegisterPageState extends State<RegisterPage> {
         const SizedBox(height: 12),
         _canResend
             ? TextButton(
-                onPressed: () async {
-                  // 1. Запускаем таймер заново
-                  _startTimer();
-                  // 2. Отправляем код на ПОЛНЫЙ email (имя + домен)
-                  try {
-                    await _dataSource.sendRegistrationCode(_getFullEmail());
-                  } catch (e) {
-                    _showSnackBar(
-                      "Ошибка при повторной отправке",
-                      isError: true,
-                    );
-                  }
-                },
+                onPressed: _currentStep != 2
+                    ? null
+                    : () async {
+                        _startTimer();
+                        try {
+                          await _dataSource.sendRegistrationCode(
+                            _getFullEmail(),
+                          );
+                        } catch (e) {
+                          _showSnackBar(
+                            "Ошибка при повторной отправке",
+                            isError: true,
+                          );
+                        }
+                      },
                 child: Text(
                   "Отправить еще раз",
                   style: TextStyle(
@@ -745,7 +719,7 @@ class _RegisterPageState extends State<RegisterPage> {
             size: 16,
             color: isMet
                 ? Colors.green
-                : colorScheme.onSurfaceVariant.withOpacity(0.5),
+                : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
           ),
           const SizedBox(width: 8),
           Text(
