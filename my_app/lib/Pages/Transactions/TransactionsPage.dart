@@ -29,49 +29,93 @@ class _TransactionsPageState extends State<TransactionsPage> {
   final UserRemoteDataSource api = UserRemoteDataSource(
     dio: Dioclient.instance,
   );
+  final ScrollController _scrollController = ScrollController();
 
   bool get _isFilterActive => !_currentFilters.isEmpty;
   List<dynamic> allTransactions = [];
-  List<dynamic> filteredTransactions = [];
   List<dynamic> categories = [];
   List<dynamic> activeLimits = [];
   bool isLoading = true;
-  double currentBillBalance = 0.0;
+  bool isLoadMoreLoading = false;
+  bool hasMore = true;
+  int currentPage = 0;
+  final int pageSize = 20;
 
+  double currentBillBalance = 0.0;
   TransactionFilters _currentFilters = TransactionFilters();
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _initialLoad();
+    _scrollController.addListener(_onScroll);
   }
 
-  Future<void> _loadData() async {
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      _loadMoreTransactions();
+    }
+  }
+
+  Future<void> _initialLoad() async {
     if (!mounted) return;
-    setState(() => isLoading = true);
+    setState(() {
+      isLoading = true;
+      currentPage = 0;
+      hasMore = true;
+      allTransactions.clear();
+    });
 
     try {
       final results = await Future.wait([
-        api.getTransactions(billId: widget.billId).catchError((e) => []),
-        api.getCategories().catchError((e) => []),
-        api.getWallets().catchError((e) => []),
-        api.getLimits(widget.billId).catchError((e) => []),
+        api
+            .getTransactions(
+              billId: widget.billId,
+              page: currentPage,
+              size: pageSize,
+              filters: _currentFilters,
+            )
+            .catchError((e) {
+              debugPrint("Ошибка загрузки транзакций: $e");
+              return <dynamic>[];
+            }),
+        api.getCategories().catchError((e) {
+          return <dynamic>[];
+        }),
+        api.getWallets().catchError((e) {
+          return <dynamic>[];
+        }),
+        api.getLimits(widget.billId).catchError((e) {
+          return <dynamic>[];
+        }),
       ]);
 
+      final List<dynamic> txResult = results[0];
       final List<dynamic> wallets = results[2];
       final currentWallet = wallets.firstWhere(
-        (w) => w['billId'] == widget.billId,
+        (w) => w['billId']?.toString() == widget.billId.toString(),
         orElse: () => {'currentBalance': 0.0},
       );
 
       if (!mounted) return;
       setState(() {
-        allTransactions = results[0];
+        allTransactions = txResult;
         categories = results[1];
         activeLimits = results[3];
-        currentBillBalance = (currentWallet['currentBalance'] as num)
+        currentBillBalance = (currentWallet['currentBalance'] as num? ?? 0.0)
             .toDouble();
-        _applyFilter();
+
+        if (txResult.length < pageSize) {
+          hasMore = false;
+        }
+        currentPage++;
         isLoading = false;
       });
     } catch (e) {
@@ -79,21 +123,49 @@ class _TransactionsPageState extends State<TransactionsPage> {
     }
   }
 
-  void _applyFilter() {
-    setState(() {
-      filteredTransactions = TransactionFilterService.apply(
-        transactions: allTransactions,
+  Future<void> _loadMoreTransactions() async {
+    if (isLoadMoreLoading || !hasMore) {
+      return;
+    }
+
+    setState(() => isLoadMoreLoading = true);
+
+    try {
+      final List<dynamic> newTx = await api.getTransactions(
+        billId: widget.billId,
+        page: currentPage,
+        size: pageSize,
         filters: _currentFilters,
       );
-    });
+
+      if (!mounted) return;
+      setState(() {
+        if (newTx.length < pageSize) {
+          hasMore = false;
+        }
+        allTransactions.addAll(newTx);
+        currentPage++;
+        isLoadMoreLoading = false;
+      });
+    } catch (e) {
+      debugPrint("Ошибка пагинации: $e");
+      if (mounted) setState(() => isLoadMoreLoading = false);
+    }
+  }
+
+  Future<void> _refreshData() async {
+    await _initialLoad();
   }
 
   Map<String, double> _calculateDailyStats() {
     double income = 0;
     double expense = 0;
-    for (var t in filteredTransactions) {
-      double amt = (t['amount'] as num).toDouble();
-      amt > 0 ? income += amt : expense += amt;
+    for (var t in allTransactions) {
+      final num? sumVal = t['sum'] ?? t['amount'];
+      if (sumVal != null) {
+        double amt = sumVal.toDouble();
+        amt > 0 ? income += amt : expense += amt;
+      }
     }
     return {"income": income, "expense": expense.abs()};
   }
@@ -115,7 +187,9 @@ class _TransactionsPageState extends State<TransactionsPage> {
               "Остаток: ${currentBillBalance.toStringAsFixed(2)} ${widget.currencySymbol}",
               style: TextStyle(
                 fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.7),
               ),
             ),
           ],
@@ -154,23 +228,36 @@ class _TransactionsPageState extends State<TransactionsPage> {
                 _buildStatsHeader(stats),
                 Expanded(
                   child: RefreshIndicator(
-                    onRefresh: _loadData,
-                    child: filteredTransactions.isEmpty
+                    onRefresh: _refreshData,
+                    child: allTransactions.isEmpty
                         ? const Center(child: Text("Нет операций"))
                         : ListView.builder(
-                            itemCount: filteredTransactions.length,
+                            controller: _scrollController,
+                            itemCount:
+                                allTransactions.length + (hasMore ? 1 : 0),
                             itemBuilder: (context, index) {
-                              final t = filteredTransactions[index];
+                              if (index == allTransactions.length) {
+                                return const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 16),
+                                  child: Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                );
+                              }
+
+                              final t = allTransactions[index];
                               bool showHeader =
                                   index == 0 ||
                                   t['transactionDate'] !=
-                                      filteredTransactions[index -
+                                      allTransactions[index -
                                           1]['transactionDate'];
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   if (showHeader)
-                                    _buildDateHeader(t['transactionDate']),
+                                    _buildDateHeader(
+                                      t['transactionDate'] ?? '',
+                                    ),
                                   _buildTransactionTile(t),
                                 ],
                               );
@@ -217,26 +304,33 @@ class _TransactionsPageState extends State<TransactionsPage> {
   }
 
   Widget _buildDateHeader(String dateStr) {
-    String formatted = DateFormat(
-      'EEEE, d MMMM',
-      'ru',
-    ).format(DateTime.parse(dateStr));
-    return Padding(
-      padding: const EdgeInsets.only(left: 16, top: 20, bottom: 8),
-      child: Text(
-        formatted.toUpperCase(),
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: Theme.of(context).colorScheme.secondary,
-          letterSpacing: 1.2,
+    if (dateStr.isEmpty) return const SizedBox.shrink();
+    try {
+      String formatted = DateFormat(
+        'EEEE, d MMMM',
+        'ru',
+      ).format(DateTime.parse(dateStr));
+      return Padding(
+        padding: const EdgeInsets.only(left: 16, top: 20, bottom: 8),
+        child: Text(
+          formatted.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).colorScheme.secondary,
+            letterSpacing: 1.2,
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      return const SizedBox.shrink();
+    }
   }
 
   Widget _buildTransactionTile(Map<String, dynamic> t) {
-    final isExpense = (t['amount'] as num) < 0;
+    final num sumVal = t['sum'] ?? t['amount'] ?? 0;
+    final isExpense = sumVal < 0;
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       elevation: 0,
@@ -259,7 +353,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
         ),
         subtitle: Text(t['categoryName'] ?? "Без категории"),
         trailing: Text(
-          "${t['amount']} ${widget.currencySymbol}",
+          "$sumVal ${widget.currencySymbol}",
           style: TextStyle(
             fontWeight: FontWeight.bold,
             color: isExpense ? Colors.red : Colors.green,
@@ -283,7 +377,10 @@ class _TransactionsPageState extends State<TransactionsPage> {
             _showCategoryPicker((id, [name]) => callback(id, name)),
         onSave: (data) => _checkLimitAndSave(data, existing),
         onDelete: () async {
-          final dynamic txId = existing?['id'] ?? existing?['transactionId'];
+          final dynamic txId =
+              existing?['idTransaction'] ??
+              existing?['id'] ??
+              existing?['transactionId'];
           if (txId == null) return;
 
           final bool? confirm = await showDialog<bool>(
@@ -308,7 +405,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
           );
 
           if (confirm == true && await api.deleteTransaction(txId)) {
-            await _loadData();
+            await _initialLoad();
             if (ctx.mounted) Navigator.pop(ctx);
           }
         },
@@ -316,7 +413,6 @@ class _TransactionsPageState extends State<TransactionsPage> {
     );
   }
 
-  // В TransactionsPage.dart
   void _showCategoryPicker(Function(int, [String?]) onSelect) {
     showDialog(
       context: context,
@@ -326,7 +422,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
         onSelect: (id, [name]) {
           onSelect(id, name);
         },
-        onChanged: _loadData,
+        onChanged: _initialLoad,
       ),
     );
   }
@@ -335,7 +431,10 @@ class _TransactionsPageState extends State<TransactionsPage> {
     Map<String, dynamic> data,
     Map<String, dynamic>? existing,
   ) async {
-    final double amount = (data['amount'] as num).toDouble();
+    final num? rawAmount = data['sum'] ?? data['amount'];
+    if (rawAmount == null) return;
+
+    final double amount = rawAmount.toDouble();
     final int? categoryId = data['categoryId'];
 
     if (amount < 0 && categoryId != null) {
@@ -347,7 +446,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
         );
 
         if (limitStatus['exceeded'] == true) {
-          final double diff = (limitStatus['diff'] as num).toDouble();
+          final double diff = (limitStatus['diff'] as num? ?? 0.0).toDouble();
           if (!mounted) return;
 
           bool confirm =
@@ -362,8 +461,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
                     ],
                   ),
                   content: Text(
-                    "Эта операция превысит лимит по категории на ${diff.toStringAsFixed(2)} ${widget.currencySymbol}.\n\n"
-                    "Всё равно сохранить?",
+                    "Эта операция превысит лимит по категории на ${diff.toStringAsFixed(2)} ${widget.currencySymbol}.\n\nВсё равно сохранить?",
                   ),
                   actions: [
                     TextButton(
@@ -394,12 +492,15 @@ class _TransactionsPageState extends State<TransactionsPage> {
 
     try {
       if (existing != null) {
-        final dynamic txId = existing['id'] ?? existing['transactionId'];
+        final dynamic txId =
+            existing['idTransaction'] ??
+            existing['id'] ??
+            existing['transactionId'];
         await api.updateTransaction(txId, data);
       } else {
         await api.addTransaction({...data, "billId": widget.billId});
       }
-      await _loadData();
+      await _initialLoad();
       if (mounted) Navigator.pop(context);
     } catch (e) {
       debugPrint("Ошибка сохранения: $e");
@@ -418,10 +519,8 @@ class _TransactionsPageState extends State<TransactionsPage> {
     );
 
     if (result != null) {
-      setState(() {
-        _currentFilters = result;
-        _applyFilter();
-      });
+      _currentFilters = result;
+      _initialLoad();
     }
   }
 
@@ -445,10 +544,8 @@ class _TransactionsPageState extends State<TransactionsPage> {
           ),
           GestureDetector(
             onTap: () {
-              setState(() {
-                _currentFilters = TransactionFilters(); // Сброс
-                _applyFilter();
-              });
+              _currentFilters = TransactionFilters();
+              _initialLoad();
             },
             child: Text(
               "Сбросить",

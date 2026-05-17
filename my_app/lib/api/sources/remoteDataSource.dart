@@ -298,14 +298,41 @@ class UserRemoteDataSource {
     }
   }
 
-  Future<List<dynamic>> getTransactions({int? billId}) async {
+  Future<List<dynamic>> getTransactions({
+    required int billId,
+    int page = 0,
+    int size = 20,
+    dynamic filters,
+  }) async {
     try {
+      final Map<String, dynamic> queryParams = {
+        'billId': billId,
+        'page': page,
+        'size': size,
+      };
+
+      if (filters != null) {
+        if (filters.categoryIds != null && filters.categoryIds.isNotEmpty) {
+          queryParams['categoryId'] = filters.categoryIds.first;
+        }
+
+        if (filters.dateRange != null) {
+          queryParams['startDate'] = filters.dateRange.start
+              .toIso8601String()
+              .split('T')[0];
+          queryParams['endDate'] = filters.dateRange.end
+              .toIso8601String()
+              .split('T')[0];
+        }
+      }
+
       final response = await dio.get(
         UrlParameters.transactionsUrl,
-        queryParameters: billId != null ? {'billId': billId} : null,
+        queryParameters: queryParams,
       );
       return response.data;
     } catch (e) {
+      debugPrint("❌ Ошибка в getTransactions (Dio): $e");
       return [];
     }
   }
