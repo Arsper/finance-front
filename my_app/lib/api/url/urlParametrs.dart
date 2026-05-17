@@ -1,6 +1,5 @@
 class UrlParameters {
-  static String getFullUrl(String url) =>
-      'http://localhost:8080/api/$url';
+  static String getFullUrl(String url) => 'http://localhost:8080/api/$url';
 
   static String registerSendCode = getFullUrl('auth/send-code');
   static String verifyCode = getFullUrl('auth/verify-code-step');
@@ -18,13 +17,16 @@ class UrlParameters {
   static String categoriesUrl = getFullUrl('categories');
   static String recurringPaymentsUrl = getFullUrl('recurring-payments');
   static String goalsUrl = getFullUrl('goals');
-  static String calcAccumulationUrl = getFullUrl('goals/calculate-accumulation');
+  static String calcAccumulationUrl = getFullUrl(
+    'goals/calculate-accumulation',
+  );
   static String calcDepositUrl = getFullUrl('goals/calculate-deposit');
-  static String statsCategoriesUrl = getFullUrl('stats/categories');
-  static String statsDailyUrl = getFullUrl('stats/daily');
 
   static String exchangeConvertUrl = getFullUrl('exchange/convert');
   static String exchangeHistoryUrl = getFullUrl('exchange/history');
 
   static String limitsUrl = getFullUrl('limits');
+
+  static String statsCategoriesUrl = getFullUrl('stats/categories');
+  static String statsDailyUrl = getFullUrl('stats/daily');
 }

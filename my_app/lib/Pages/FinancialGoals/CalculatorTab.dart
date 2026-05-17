@@ -491,7 +491,7 @@ class _CalculatorTabState extends State<CalculatorTab> {
                 .toDouble();
             _calculatedTargetDate = res['finalDate'];
 
-            _resMainValue = "${_calculatedTargetAmount!.toStringAsFixed(2)} ₽";
+            _resMainValue = _calculatedTargetAmount!.toStringAsFixed(2);
             _resSubText =
                 "Будет накоплено к вашей финальной дате: $_calculatedTargetDate";
             _resultMessage = _resMainValue;

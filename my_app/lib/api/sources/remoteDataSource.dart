@@ -431,22 +431,26 @@ class UserRemoteDataSource {
 
   Future<List<CategoryStat>> getCategoryStats(
     int billId,
-    DateTime start,
-    DateTime end,
-  ) async {
+    String period,
+    String type, {
+    String? startDate,
+    String? endDate,
+  }) async {
     try {
-      final startStr = start.toIso8601String().split('T')[0];
-      final endStr = end.toIso8601String().split('T')[0];
-
+      final token = StorageService.getToken();
       final response = await dio.get(
         UrlParameters.statsCategoriesUrl,
         queryParameters: {
           'billId': billId,
-          'startDate': startStr,
-          'endDate': endStr,
+          'period': period,
+          'type': type,
+          if (startDate != null) 'startDate': startDate,
+          if (endDate != null) 'endDate': endDate,
         },
+        options: Options(
+          headers: {if (token != null) 'Authorization': 'Bearer $token'},
+        ),
       );
-
       return (response.data as List)
           .map((e) => CategoryStat.fromJson(e))
           .toList();
@@ -458,20 +462,24 @@ class UserRemoteDataSource {
 
   Future<List<DailyStat>> getDailyStats(
     int billId,
-    DateTime start,
-    DateTime end,
-  ) async {
+    String period, {
+    String? startDate,
+    String? endDate,
+  }) async {
     try {
-      final startStr = start.toIso8601String().split('T')[0];
-      final endStr = end.toIso8601String().split('T')[0];
+      final token = StorageService.getToken();
 
       final response = await dio.get(
         UrlParameters.statsDailyUrl,
         queryParameters: {
           'billId': billId,
-          'startDate': startStr,
-          'endDate': endStr,
+          'period': period,
+          if (startDate != null) 'startDate': startDate,
+          if (endDate != null) 'endDate': endDate,
         },
+        options: Options(
+          headers: {if (token != null) 'Authorization': 'Bearer $token'},
+        ),
       );
 
       return (response.data as List).map((e) => DailyStat.fromJson(e)).toList();

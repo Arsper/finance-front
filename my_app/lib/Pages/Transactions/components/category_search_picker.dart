@@ -137,18 +137,9 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                   ),
                   onPressed: () async {
                     if (formKey.currentState!.validate()) {
-                      final data = {"name": nameController.text};
-                      final response = existing == null
-                          ? await api.addCategory(data)
-                          : await api.updateCategory(
-                              existing['categoryId'],
-                              data,
-                            );
-                      if (response != null) {
-                        widget.onChanged();
-                        await _loadCategoryData();
-                        if (ctx.mounted) Navigator.pop(ctx);
-                      }
+                      widget.onChanged();
+                      await _loadCategoryData();
+                      if (ctx.mounted) Navigator.pop(ctx);
                     }
                   },
                   child: _buttonText("СОХРАНИТЬ"),

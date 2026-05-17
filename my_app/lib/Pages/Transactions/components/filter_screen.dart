@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../transaction_filter_service.dart';
+import 'transaction_filter_service.dart';
 
 class FilterScreen extends StatefulWidget {
   final TransactionFilters initialFilters;
@@ -130,7 +130,9 @@ class _FilterScreenState extends State<FilterScreen> {
                                 setState(() {
                                   tempFilters.period = p;
                                   tempFilters.dateRange =
-                                      TransactionFilterService.calculateRange(p);
+                                      TransactionFilterService.calculateRange(
+                                        p,
+                                      );
                                 });
                               },
                             ),
@@ -152,8 +154,12 @@ class _FilterScreenState extends State<FilterScreen> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       tileColor: colorScheme.brightness == Brightness.dark
-                          ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.3)
-                          : colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                          ? colorScheme.surfaceContainerHighest.withValues(
+                              alpha: 0.3,
+                            )
+                          : colorScheme.surfaceContainerHighest.withValues(
+                              alpha: 0.4,
+                            ),
                       leading: Icon(
                         Icons.calendar_month,
                         color: colorScheme.primary,
@@ -215,11 +221,19 @@ class _FilterScreenState extends State<FilterScreen> {
                         style: const TextStyle(fontSize: 14),
                         decoration: InputDecoration(
                           hintText: "Поиск категории...",
-                          prefixIcon: Icon(Icons.search, color: colorScheme.primary, size: 20),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: colorScheme.primary,
+                            size: 20,
+                          ),
                           filled: true,
                           fillColor: colorScheme.brightness == Brightness.dark
-                              ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.3)
-                              : colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                              ? colorScheme.surfaceContainerHighest.withValues(
+                                  alpha: 0.3,
+                                )
+                              : colorScheme.surfaceContainerHighest.withValues(
+                                  alpha: 0.3,
+                                ),
                           contentPadding: EdgeInsets.zero,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -259,7 +273,10 @@ class _FilterScreenState extends State<FilterScreen> {
                         activeColor: colorScheme.primary,
                         title: Text(
                           cat['name'],
-                          style: TextStyle(color: colorScheme.onSurface, fontSize: 14),
+                          style: TextStyle(
+                            color: colorScheme.onSurface,
+                            fontSize: 14,
+                          ),
                         ),
                         value: isSelected,
                         onChanged: (val) {

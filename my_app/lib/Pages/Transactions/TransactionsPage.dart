@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:my_app/CustomerWidgets/AppFloatingButton.dart';
-import 'package:my_app/Pages/Transactions/components/components/filter_screen.dart';
+import 'package:my_app/Pages/Transactions/components/BillStatisticsPage.dart';
+import 'package:my_app/Pages/Transactions/components/filter_screen.dart';
 import 'package:my_app/Pages/Transactions/components/transaction_filter_service.dart';
 import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
@@ -106,19 +107,40 @@ class _TransactionsPageState extends State<TransactionsPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.billName, style: const TextStyle(fontSize: 16)),
+            Text(
+              widget.billName,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
             Text(
               "Остаток: ${currentBillBalance.toStringAsFixed(2)} ${widget.currencySymbol}",
-              style: const TextStyle(fontSize: 12, color: Colors.white70),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+              ),
             ),
           ],
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.analytics_outlined),
+            tooltip: "Статистика",
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BillStatisticsPage(
+                    billId: widget.billId,
+                    billName: widget.billName,
+                    currencySymbol: widget.currencySymbol,
+                  ),
+                ),
+              );
+            },
+          ),
+          IconButton(
             onPressed: _openFilters,
             icon: Badge(
-              isLabelVisible:
-                  _isFilterActive,
+              isLabelVisible: _isFilterActive,
               child: const Icon(Icons.tune),
             ),
           ),
@@ -408,7 +430,9 @@ class _TransactionsPageState extends State<TransactionsPage> {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+      color: Theme.of(
+        context,
+      ).colorScheme.primaryContainer.withValues(alpha: 0.3),
       child: Row(
         children: [
           const Icon(Icons.filter_list, size: 16),
