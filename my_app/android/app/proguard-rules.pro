@@ -1,0 +1,1 @@
+touch android/app/proguard-rules.pro

@@ -1,5 +1,4 @@
 import 'dart:ui';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -25,8 +24,6 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
   String? _serverError;
 
-  final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
-
   @override
   void initState() {
     super.initState();
@@ -34,14 +31,15 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _initializeGoogleSignIn() async {
-    // Твой Client ID от WEB-приложения из Google Cloud Console
     const String webClientId =
-        "974712441086-g5786e4k76hgq7iq5ur1pcabdk4tnf4a.apps.googleusercontent.com";
+        "974712441086-nrs2249alchlrgh25298nkmsmb58ep6d.apps.googleusercontent.com";
 
-    await _googleSignIn.initialize(
-      clientId: kIsWeb ? webClientId : null, // Для веба нужен clientId
-      serverClientId:
-          webClientId, // ДЛЯ ANDROID ОБЯЗАТЕЛЬНО передаем веб-клиент сюда
+    const String androidClientId =
+        "974712441086-9j4esu8tthqcm5l3gl9pm7lu35th7sp7.apps.googleusercontent.com";
+
+    await GoogleSignIn.instance.initialize(
+      clientId: androidClientId,
+      serverClientId: webClientId,
     );
   }
 
@@ -59,20 +57,15 @@ class _LoginPageState extends State<LoginPage> {
         _serverError = null;
       });
 
-      // Заменяем .signIn() на .authenticate()
-      final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
+      final GoogleSignInAccount googleUser = await GoogleSignIn.instance
+          .authenticate();
 
-      // В этой версии authenticate возвращает GoogleSignInAccount (не nullable),
-      // но лучше оставить проверку или обработать исключение через try-catch,
-      // так как при отмене пользователем кидается GoogleSignInException.
-
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
       final String? idToken = googleAuth.idToken;
 
       if (idToken != null) {
         final dataSource = UserRemoteDataSource(dio: Dioclient.instance);
-        bool success = await dataSource.loginWithGoogle(idToken);
+        final success = await dataSource.loginWithGoogle(idToken);
 
         if (success && mounted) {
           Navigator.of(
@@ -81,13 +74,21 @@ class _LoginPageState extends State<LoginPage> {
         } else if (mounted) {
           setState(() => _serverError = "Ошибка авторизации на сервере");
         }
+      } else {
+        setState(() => _serverError = "Не удалось получить токен Google");
       }
     } catch (e) {
-      debugPrint("Google Sign-In Error: $e");
       if (mounted) {
-        // Если пользователь отменил вход, authenticate() выбросит исключение
-        // с кодом GoogleSignInExceptionCode.canceled
-        setState(() => _serverError = "Не удалось войти через Google");
+        String errorMessage = "Не удалось войти через Google";
+        if (e.toString().contains("NETWORK_ERROR")) {
+          errorMessage = "Ошибка сети. Проверьте интернет";
+        } else if (e.toString().contains("CANCELED") ||
+            e.toString().contains("canceled")) {
+          errorMessage = "Вход отменен";
+        } else if (e.toString().contains("DEVELOPER_ERROR")) {
+          errorMessage = "Ошибка конфигурации. Проверьте SHA-1 в Firebase";
+        }
+        setState(() => _serverError = errorMessage);
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -104,7 +105,7 @@ class _LoginPageState extends State<LoginPage> {
 
     try {
       final dataSource = UserRemoteDataSource(dio: Dioclient.instance);
-      bool success = await dataSource.loginUser(
+      final success = await dataSource.loginUser(
         _passController.text,
         _loginController.text.trim(),
       );
@@ -133,7 +134,7 @@ class _LoginPageState extends State<LoginPage> {
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
 
-    final Color textColor = colorScheme.onBackground;
+    final Color textColor = colorScheme.onSurface;
     final Color textMuted = colorScheme.onSurfaceVariant;
     final Color cardBgColor = colorScheme.surface;
     final Color outlineVariant = colorScheme.outlineVariant;
@@ -144,18 +145,20 @@ class _LoginPageState extends State<LoginPage> {
         : Colors.grey.shade100;
 
     return Scaffold(
-      backgroundColor: colorScheme.background,
+      backgroundColor: colorScheme.surface,
       body: Stack(
         children: [
           _buildBlurCircle(
             top: -150,
             right: -100,
-            color: colorScheme.primary.withOpacity(isDark ? 0.08 : 0.04),
+            color: colorScheme.primary.withValues(alpha: isDark ? 0.08 : 0.04),
           ),
           _buildBlurCircle(
             bottom: -150,
             left: -100,
-            color: colorScheme.secondary.withOpacity(isDark ? 0.08 : 0.04),
+            color: colorScheme.secondary.withValues(
+              alpha: isDark ? 0.08 : 0.04,
+            ),
           ),
           SafeArea(
             child: Center(
@@ -182,7 +185,7 @@ class _LoginPageState extends State<LoginPage> {
                           color: cardBgColor,
                           borderRadius: BorderRadius.circular(24),
                           border: Border.all(
-                            color: outlineVariant.withOpacity(0.3),
+                            color: outlineVariant.withValues(alpha: .3),
                           ),
                         ),
                         child: Column(
@@ -195,8 +198,9 @@ class _LoginPageState extends State<LoginPage> {
                               validator: AppValidators.login,
                               textInputAction: TextInputAction.next,
                               onChanged: (_) {
-                                if (_serverError != null)
+                                if (_serverError != null) {
                                   setState(() => _serverError = null);
+                                }
                               },
                             ),
                             const SizedBox(height: 20),
@@ -207,8 +211,9 @@ class _LoginPageState extends State<LoginPage> {
                               isPassword: true,
                               validator: AppValidators.password,
                               onChanged: (_) {
-                                if (_serverError != null)
+                                if (_serverError != null) {
                                   setState(() => _serverError = null);
+                                }
                               },
                             ),
                             Align(
@@ -270,10 +275,14 @@ class _LoginPageState extends State<LoginPage> {
                                   horizontal: 16,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.redAccent.withOpacity(0.1),
+                                  color: Colors.redAccent.withValues(
+                                    alpha: 0.1,
+                                  ),
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                    color: Colors.redAccent.withOpacity(0.3),
+                                    color: Colors.redAccent.withValues(
+                                      alpha: 0.3,
+                                    ),
                                   ),
                                 ),
                                 child: Text(
@@ -299,8 +308,7 @@ class _LoginPageState extends State<LoginPage> {
                                     bgColor: socialBtnBg,
                                     textColor: textColor,
                                     borderColor: outlineVariant,
-                                    onPressed:
-                                        _handleGoogleSignIn, // ПЕРЕДАЕМ МЕТОД
+                                    onPressed: _handleGoogleSignIn,
                                   ),
                                 ),
                                 const SizedBox(width: 16),
@@ -364,12 +372,12 @@ class _LoginPageState extends State<LoginPage> {
   Widget _buildDivider(Color textMuted, Color outlineVariant) {
     return Row(
       children: [
-        Expanded(child: Divider(color: outlineVariant.withOpacity(0.3))),
+        Expanded(child: Divider(color: outlineVariant.withValues(alpha: 0.3))),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0),
           child: Text("или", style: TextStyle(color: textMuted, fontSize: 12)),
         ),
-        Expanded(child: Divider(color: outlineVariant.withOpacity(0.3))),
+        Expanded(child: Divider(color: outlineVariant.withValues(alpha: 0.3))),
       ],
     );
   }
@@ -380,7 +388,7 @@ class _LoginPageState extends State<LoginPage> {
     required Color bgColor,
     required Color textColor,
     required Color borderColor,
-    required VoidCallback onPressed, // Добавили обязательный колбэк
+    required VoidCallback onPressed,
     Color? logoColor,
   }) {
     return SizedBox(
@@ -388,13 +396,13 @@ class _LoginPageState extends State<LoginPage> {
       child: OutlinedButton(
         style: OutlinedButton.styleFrom(
           backgroundColor: bgColor,
-          side: BorderSide(color: borderColor.withOpacity(0.4)),
+          side: BorderSide(color: borderColor.withValues(alpha: 0.4)),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
           padding: EdgeInsets.zero,
         ),
-        onPressed: onPressed, // Привязываем к кнопке
+        onPressed: onPressed,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

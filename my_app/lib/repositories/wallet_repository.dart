@@ -182,14 +182,27 @@ class WalletRepository {
         await localDataSource.updateWalletOffline(billId, data);
         return true;
       }
-      final success = await remoteDataSource.updateWallet(billId, data);
+
+      final Map<String, dynamic> serverData = {
+        "name": data['name'],
+        "type": data['type'] ?? 'Debit',
+        "startBalance": data['startBalance'] ?? 0.0,
+        "currencyId": data['currencyId'],
+      };
+      final success = await remoteDataSource.updateWallet(billId, serverData);
+
       if (success) {
+        data['isSynced'] = true;
+        data['billId'] = billId;
+        await localDataSource.updateWalletOffline(billId, data);
         await getWallets();
         return true;
       }
+      data['isSynced'] = false;
       await localDataSource.updateWalletOffline(billId, data);
       return true;
     } catch (e) {
+      debugPrint("Ошибка при обновлении кошелька: $e");
       await localDataSource.updateWalletOffline(billId, data);
       return true;
     }
