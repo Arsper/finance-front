@@ -17,7 +17,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _selectedIndex = 0;
 
   bool _isOnline = true;
@@ -39,12 +39,32 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
     _dataSource = UserRemoteDataSource(dio: Dioclient.instance);
     _initConnectivity();
+    _startHealthCheckTimer();
+  }
 
+  void _startHealthCheckTimer() {
+    _healthCheckTimer?.cancel();
     _healthCheckTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _checkFullStatus();
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          _checkFullStatus();
+          _startHealthCheckTimer();
+        }
+      });
+    } else if (state == AppLifecycleState.paused) {
+      _healthCheckTimer?.cancel();
+    }
   }
 
   Future<void> _initConnectivity() async {
@@ -78,17 +98,26 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final serverAlive = await _dataSource.checkServerHealth();
+    try {
+      final serverAlive = await _dataSource.checkServerHealth();
 
-    if (mounted) {
-      setState(() {
-        _isServerAlive = serverAlive;
-      });
+      if (mounted) {
+        setState(() {
+          _isServerAlive = serverAlive;
+        });
 
-      if (!serverAlive) {
-        _handleOfflineMode(
-          reason: 'Сервер временно недоступен (Ошибка 502/503/Таймаут)',
-        );
+        if (!serverAlive) {
+          _handleOfflineMode(
+            reason: 'Сервер временно недоступен (Ошибка 502/503/Таймаут)',
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isServerAlive = false;
+        });
+        _handleOfflineMode(reason: 'Не удалось связаться с сервером');
       }
     }
   }
@@ -109,6 +138,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _connectivitySubscription?.cancel();
     _healthCheckTimer?.cancel();
     super.dispose();
@@ -212,7 +242,7 @@ class _HomePageState extends State<HomePage> {
               color: _isApiAvailable ? null : Colors.grey.shade400,
             ),
             activeIcon: const Icon(Icons.calendar_month),
-            label: 'Платежи',
+            label: 'Автоплатеж',
           ),
           BottomNavigationBarItem(
             icon: Icon(

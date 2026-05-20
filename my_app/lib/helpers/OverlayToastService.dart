@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 
 class OverlayToastService {
+  static OverlayEntry? _currentEntry;
+
   static void show(
     BuildContext context, {
     required String message,
     bool isError = true,
     Duration duration = const Duration(seconds: 3),
   }) {
+    _currentEntry?.remove();
+    _currentEntry = null;
+
     final overlay = Overlay.of(context);
 
     final overlayEntry = OverlayEntry(
@@ -54,11 +59,15 @@ class OverlayToastService {
       ),
     );
 
+    _currentEntry = overlayEntry;
     overlay.insert(overlayEntry);
 
     Future.delayed(duration, () {
-      if (overlayEntry.mounted) {
-        overlayEntry.remove();
+      if (overlayEntry == _currentEntry) {
+        if (overlayEntry.mounted) {
+          overlayEntry.remove();
+        }
+        _currentEntry = null;
       }
     });
   }

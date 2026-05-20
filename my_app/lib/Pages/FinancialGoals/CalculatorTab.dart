@@ -506,9 +506,9 @@ class _CalculatorTabState extends State<CalculatorTab> {
             _calculatedTargetDate = date;
             final monthly = res['requiredMonthlyDeposit'];
 
-            _resMainValue = "$monthly ₽ / мес.";
+            _resMainValue = "$monthly в мес.";
             _resSubText =
-                "Необходимо откладывать регулярно, чтобы собрать цель $inputAmount ₽";
+                "Необходимо откладывать регулярно, чтобы собрать цель $inputAmount";
             _resultMessage = _resMainValue;
           });
         }

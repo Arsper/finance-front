@@ -89,15 +89,18 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
             );
             return;
           }
+
           String symbol = "₽";
           try {
             final wallet = wallets.firstWhere(
-              (w) => w['billId'] == selectedBillId,
+              (w) => w['billId']?.toString() == selectedBillId.toString(),
             );
-            symbol = wallet['currencySymbol'] ?? "₽";
+            final String code = wallet['currencyCode'] ?? 'RUB';
+            symbol = NumberFormat.simpleCurrency(name: code).currencySymbol;
           } catch (e) {
-            debugPrint("Кошелек не найден: $e");
+            debugPrint("Кошелек не найден в пикере: $e");
           }
+
           showDialog(
             context: context,
             builder: (ctx) => CategorySearchPicker(
@@ -166,9 +169,16 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
                   final double amount = (p['amount'] as num).toDouble();
                   final bool isIncome = amount > 0;
                   final wallet = wallets.firstWhere(
-                    (w) => w['billId'] == p['billId'],
+                    (w) => w['billId']?.toString() == p['billId']?.toString(),
                     orElse: () => <String, dynamic>{},
                   );
+                  final String walletName =
+                      wallet['name'] ?? p['billName'] ?? 'Счет не указан';
+                  final String currencyCode =
+                      wallet['currencyCode'] ?? p['currencyCode'] ?? 'RUB';
+                  final String currencySymbol = NumberFormat.simpleCurrency(
+                    name: currencyCode,
+                  ).currencySymbol;
 
                   return Container(
                     margin: const EdgeInsets.only(bottom: 12),
@@ -267,7 +277,7 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
                                           const SizedBox(width: 8),
                                           Flexible(
                                             child: Text(
-                                              wallet['name'] ?? '',
+                                              walletName,
                                               style: TextStyle(
                                                 fontSize: 12,
                                                 color: colorScheme
@@ -289,7 +299,7 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
                                     fit: BoxFit.scaleDown,
                                     alignment: Alignment.centerRight,
                                     child: Text(
-                                      "${isIncome ? '+' : ''}${amount.toStringAsFixed(2)} ${wallet['currencySymbol'] ?? ''}",
+                                      "${isIncome ? '+' : ''}${amount.toStringAsFixed(2)} $currencySymbol",
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w900,

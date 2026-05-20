@@ -317,10 +317,11 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                                               : colors.primary,
                                           size: 22,
                                         ),
-                                        onPressed: () => _checkAndOpen(
-                                          () =>
-                                              _openManageCategory(existing: c),
-                                        ),
+                                        onPressed: () async {
+                                          if (await _isNetworkAvailable()) {
+                                            _openManageCategory(existing: c);
+                                          }
+                                        },
                                       ),
                                     IconButton(
                                       icon: Icon(
@@ -334,10 +335,11 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                                               ),
                                         size: 22,
                                       ),
-                                      onPressed: () => _checkAndOpen(
-                                        () =>
-                                            _openLimitManage(categoryId, limit),
-                                      ),
+                                      onPressed: () async {
+                                        if (await _isNetworkAvailable()) {
+                                          _openLimitManage(categoryId, limit);
+                                        }
+                                      },
                                     ),
                                   ],
                                 ),
@@ -358,7 +360,11 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                 right: 0,
                 child: FloatingActionButton(
                   backgroundColor: isOffline ? Colors.grey : colors.primary,
-                  onPressed: () => _checkAndOpen(() => _openManageCategory()),
+                  onPressed: () async {
+                    if (await _isNetworkAvailable()) {
+                      _openManageCategory();
+                    }
+                  },
                   child: const Icon(Icons.add),
                 ),
               ),
@@ -389,25 +395,25 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
     );
   }
 
-  Future<void> _checkAndOpen(Function openDialog) async {
-    final connectivityResults = await Connectivity().checkConnectivity();
+  Future<bool> _isNetworkAvailable() async {
+    final ConnectivityResult connectivityResult = await Connectivity()
+        .checkConnectivity();
 
-    if (!mounted) return;
+    if (!mounted) return false;
 
-    if (connectivityResults == ConnectivityResult.none) {
+    if (connectivityResult == ConnectivityResult.none) {
       setState(() => isOffline = true);
       OverlayToastService.show(
         context,
         message: "Нет интернет-соединения.",
         isError: false,
       );
-      return;
+      return false;
     }
 
     try {
       final bool isOnline = await repository.isServerAvailable();
-
-      if (!mounted) return;
+      if (!mounted) return false;
 
       setState(() => isOffline = !isOnline);
 
@@ -417,18 +423,19 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
           message: "Сервер недоступен. Попробуйте позже.",
           isError: false,
         );
-        return;
+        return false;
       }
 
-      openDialog();
+      return true;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
 
       setState(() => isOffline = true);
       OverlayToastService.show(
         context,
         message: "Ошибка подключения к серверу.",
       );
+      return false;
     }
   }
 }
