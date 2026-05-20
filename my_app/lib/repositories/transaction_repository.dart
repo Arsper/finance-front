@@ -138,7 +138,13 @@ class TransactionRepository {
     required TransactionFilters filters,
   }) async {
     if (page == 0 && filters.isEmpty) {
-      await syncOfflineTransactions();
+      try {
+        await syncOfflineTransactions();
+      } catch (e) {
+        debugPrint(
+          "REPO [SYNC WARN]: Сеть недоступна, пропускаем авто-синхронизацию.",
+        );
+      }
     }
 
     try {
@@ -155,29 +161,41 @@ class TransactionRepository {
 
       return freshData;
     } catch (e) {
-      if (page == 0 && filters.isEmpty) {
-        final List<dynamic> localTx = await local.getTransactions(billId);
+      final List<dynamic> localTx = await local.getTransactions(billId);
+      final List<Map<String, dynamic>> enrichedLocalTx = [];
 
-        final List<dynamic> enrichedLocalTx = [];
+      for (var tx in localTx) {
+        final Map<String, dynamic> mutableTx = Map<String, dynamic>.from(
+          tx as Map,
+        );
+        final int? catId = int.tryParse(
+          mutableTx['categoryId']?.toString() ?? '',
+        );
 
-        for (var tx in localTx) {
-          final Map<String, dynamic> mutableTx = Map<String, dynamic>.from(tx);
-          final int? catId = int.tryParse(
-            mutableTx['categoryId']?.toString() ?? '',
-          );
-
-          if (catId != null) {
-            final String? actualCatName = await _getLocalCategoryName(catId);
-            if (actualCatName != null) {
-              mutableTx['categoryName'] = actualCatName;
-            }
+        if (catId != null) {
+          final String? actualCatName = await _getLocalCategoryName(catId);
+          if (actualCatName != null) {
+            mutableTx['categoryName'] = actualCatName;
           }
-          enrichedLocalTx.add(mutableTx);
         }
-
-        return enrichedLocalTx;
+        enrichedLocalTx.add(mutableTx);
       }
-      rethrow;
+
+      final List<dynamic> filteredAndSorted = TransactionFilterService.apply(
+        transactions: enrichedLocalTx,
+        filters: filters,
+      );
+
+      final int startIndex = page * size;
+      if (startIndex >= filteredAndSorted.length) {
+        return [];
+      }
+
+      final int endIndex = (startIndex + size) > filteredAndSorted.length
+          ? filteredAndSorted.length
+          : (startIndex + size);
+
+      return filteredAndSorted.sublist(startIndex, endIndex);
     }
   }
 

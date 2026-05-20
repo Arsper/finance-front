@@ -17,24 +17,34 @@ class TransactionFilters {
 }
 
 class TransactionFilterService {
-  /// Основной метод фильтрации
   static List<dynamic> apply({
     required List<dynamic> transactions,
     required TransactionFilters filters,
   }) {
-    return transactions.where((t) {
-      final tDate = DateTime.parse(t['transactionDate']);
-      final tCatId = t['categoryId'] as int?;
+    final filtered = transactions.where((t) {
+      if (t['localDeleted'] == true) return false;
 
-      // 1. Фильтр по датам
+      final tDateRaw = t['transactionDate'];
+      final tDate = tDateRaw is DateTime
+          ? tDateRaw
+          : DateTime.tryParse(tDateRaw?.toString() ?? '');
+
+      final int? tCatId = int.tryParse(t['categoryId']?.toString() ?? '');
+
       bool dateMatch = true;
-      if (filters.dateRange != null) {
+      if (filters.dateRange != null && tDate != null) {
         final start = _stripTime(filters.dateRange!.start);
-        final end = _stripTime(filters.dateRange!.end);
+        final end = DateTime(
+          filters.dateRange!.end.year,
+          filters.dateRange!.end.month,
+          filters.dateRange!.end.day,
+          23,
+          59,
+          59,
+        );
         dateMatch = !tDate.isBefore(start) && !tDate.isAfter(end);
       }
 
-      // 2. Фильтр по категориям
       bool categoryMatch = true;
       if (filters.categoryIds.isNotEmpty) {
         categoryMatch = filters.categoryIds.contains(tCatId);
@@ -42,14 +52,37 @@ class TransactionFilterService {
 
       return dateMatch && categoryMatch;
     }).toList();
+
+    filtered.sort((a, b) {
+      final dateARaw = a['transactionDate'];
+      final dateBRaw = b['transactionDate'];
+
+      DateTime? dateA = dateARaw is DateTime
+          ? dateARaw
+          : DateTime.tryParse(dateARaw?.toString() ?? '');
+      DateTime? dateB = dateBRaw is DateTime
+          ? dateBRaw
+          : DateTime.tryParse(dateBRaw?.toString() ?? '');
+
+      dateA ??= DateTime(1970);
+      dateB ??= DateTime(1970);
+
+      return dateB.millisecondsSinceEpoch.compareTo(
+        dateA.millisecondsSinceEpoch,
+      );
+    });
+
+    return filtered;
   }
 
-  /// Утилита для расчета диапазонов дат (Неделя, Месяц и т.д.)
   static DateTimeRange? calculateRange(String period) {
     final now = DateTime.now();
     switch (period) {
       case 'day':
-        return DateTimeRange(start: now, end: now);
+        return DateTimeRange(
+          start: DateTime(now.year, now.month, now.day),
+          end: DateTime(now.year, now.month, now.day),
+        );
       case 'week':
         return DateTimeRange(
           start: now.subtract(Duration(days: now.weekday - 1)),

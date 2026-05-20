@@ -83,7 +83,6 @@ class _TransactionsPageState extends State<TransactionsPage> {
     });
 
     final cachedTx = await localStorage.getTransactions(widget.billId);
-    debugPrint("DEBUG [Load]: Данные из локального кэша: $cachedTx");
     final cachedWallets = await localStorage.getWallets();
     final cachedCategories = await localStorage.getCategories();
 
@@ -124,8 +123,18 @@ class _TransactionsPageState extends State<TransactionsPage> {
           })
           .toList();
 
+      final sortedCachedTx = TransactionFilterService.apply(
+        transactions: enrichedCachedTx,
+        filters: _currentFilters,
+      );
+
       setState(() {
-        allTransactions = enrichedCachedTx;
+        final int end = sortedCachedTx.length > pageSize
+            ? pageSize
+            : sortedCachedTx.length;
+        allTransactions = List<Map<String, dynamic>>.from(
+          sortedCachedTx.sublist(0, end),
+        );
         categories = localCategories;
         currentBillBalance = (currentWallet['currentBalance'] as num? ?? 0.0)
             .toDouble();
