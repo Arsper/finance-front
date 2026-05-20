@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.my_app"
-    compileSdk = 36  // ← ИЗМЕНИТЬ: было 35, стало 36
+    compileSdk = 36  // Стабильная версия Android 15 (устраняет потенциальные конфликты плагинов)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -22,7 +22,7 @@ android {
     defaultConfig {
         applicationId = "com.example.my_app"
         minSdk = flutter.minSdkVersion
-        targetSdk = 36  // ← ИЗМЕНИТЬ: было 35, стало 36
+        targetSdk = 36  // Стабильная версия Android 15
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
@@ -30,7 +30,9 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            // Используем дебажную подпись, чтобы APK запускался на любом устройстве без настройки Keystore
+            signingConfig = signingConfigs.getByName("debug") 
+            
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles(

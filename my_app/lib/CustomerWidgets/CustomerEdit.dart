@@ -17,6 +17,7 @@ class CustomerEdit extends StatefulWidget {
   final bool readOnly;
   final VoidCallback? onTap;
   final TextInputAction? textInputAction;
+  final FocusNode? focusNode;
 
   const CustomerEdit({
     super.key,
@@ -35,6 +36,7 @@ class CustomerEdit extends StatefulWidget {
     this.readOnly = false,
     this.onTap,
     this.textInputAction,
+    this.focusNode, // ИСПРАВЛЕНО: Добавлено в конструктор
   });
 
   @override
@@ -54,12 +56,14 @@ class _CustomerEditState extends State<CustomerEdit> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final effectiveMaxLength = (widget.maxLength != null && widget.maxLength! > 0) 
-        ? widget.maxLength 
+    final effectiveMaxLength =
+        (widget.maxLength != null && widget.maxLength! > 0)
+        ? widget.maxLength
         : null;
 
     return TextFormField(
       controller: widget.controller,
+      focusNode: widget.focusNode,
       obscureText: widget.isPassword ? _obscureText : false,
       obscuringCharacter: '☹',
       maxLength: effectiveMaxLength,
@@ -73,7 +77,9 @@ class _CustomerEditState extends State<CustomerEdit> {
         if (widget.onChanged != null) widget.onChanged!(val);
         if (widget.showCounter) setState(() {});
       },
-      buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
+      buildCounter:
+          (context, {required currentLength, required isFocused, maxLength}) =>
+              null,
       decoration: InputDecoration(
         labelText: widget.label,
         prefixIcon: widget.icon != null ? Icon(widget.icon) : null,
@@ -81,7 +87,11 @@ class _CustomerEditState extends State<CustomerEdit> {
         border: const OutlineInputBorder(
           borderRadius: BorderRadius.all(Radius.circular(12)),
         ),
-        suffix: (widget.showCounter && !widget.isPassword && widget.errorText == null && effectiveMaxLength != null)
+        suffix:
+            (widget.showCounter &&
+                !widget.isPassword &&
+                widget.errorText == null &&
+                effectiveMaxLength != null)
             ? Text(
                 '${widget.controller?.text.length ?? 0}/${widget.maxLength}',
                 style: TextStyle(fontSize: 12, color: theme.hintColor),

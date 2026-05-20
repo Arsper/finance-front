@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
+import 'package:my_app/api/sources/local_storage_service.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
 import 'package:my_app/api/DioClient.dart';
+import 'package:my_app/helpers/OverlayToastService.dart';
+import 'package:my_app/repositories/category_repository.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class CategorySearchPicker extends StatefulWidget {
   final int billId;
@@ -22,8 +26,9 @@ class CategorySearchPicker extends StatefulWidget {
 }
 
 class _CategorySearchPickerState extends State<CategorySearchPicker> {
-  final UserRemoteDataSource api = UserRemoteDataSource(
-    dio: Dioclient.instance,
+  final CategoryRepository repository = CategoryRepository(
+    UserRemoteDataSource(dio: Dioclient.instance),
+    LocalStorageService(),
   );
 
   List<dynamic> categories = [];
@@ -31,6 +36,7 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
   bool isLoading = true;
   String searchQuery = "";
   String filterType = "all";
+  bool isOffline = false;
 
   @override
   void initState() {
@@ -39,25 +45,35 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
   }
 
   Future<void> _loadCategoryData() async {
+    final isOnline = await repository.isServerAvailable();
+    setState(() => isOffline = !isOnline);
+
+    final cached = await repository.local.getCategories();
+    if (mounted && cached.isNotEmpty) {
+      setState(() => categories = cached);
+    }
+
+    if (!isOnline) {
+      if (mounted) setState(() => isLoading = false);
+      return;
+    }
+
     try {
-      final results = await Future.wait([
-        api.getCategories().catchError((e) => []),
-        api.getLimits(widget.billId).catchError((e) => []),
-      ]);
+      final fresh = await repository.getCategories();
+      final limits = await repository
+          .getLimits(widget.billId)
+          .catchError((e) => <dynamic>[]);
+
       if (mounted) {
         setState(() {
-          categories = results[0];
-          activeLimits = results[1];
+          categories = fresh;
+          activeLimits = limits;
           isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) setState(() => isLoading = false);
     }
-  }
-
-  Widget _buttonText(String text) {
-    return FittedBox(fit: BoxFit.scaleDown, child: Text(text));
   }
 
   void _openManageCategory({Map<String, dynamic>? existing}) {
@@ -72,14 +88,11 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              existing == null ? "Новая категория" : "Редактирование",
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            if (existing != null)
+            Text(existing == null ? "Новая категория" : "Редактирование"),
+            if (existing != null && !isOffline)
               IconButton(
                 onPressed: () async {
-                  if (await api.deleteCategory(existing['categoryId'])) {
+                  if (await repository.deleteCategory(existing['categoryId'])) {
                     widget.onChanged();
                     await _loadCategoryData();
                     if (ctx.mounted) Navigator.pop(ctx);
@@ -91,61 +104,38 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
         ),
         content: Form(
           key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CustomerEdit(
-                controller: nameController,
-                label: "Название",
-                icon: Icons.label_outline,
-                validator: (val) =>
-                    (val == null || val.isEmpty) ? "Введите название" : null,
-              ),
-            ],
+          child: CustomerEdit(
+            controller: nameController,
+            label: "Название",
+            icon: Icons.label_outline,
+            validator: (val) =>
+                (val == null || val.isEmpty) ? "Введите название" : null,
           ),
         ),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 45),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    side: BorderSide(
-                      color: colors.outline.withValues(alpha: 0.5),
-                    ),
-                  ),
-                  onPressed: () => Navigator.pop(ctx),
-                  child: _buttonText("ОТМЕНА"),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(0, 45),
-                    backgroundColor: colors.primary,
-                    foregroundColor: colors.onPrimary,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  onPressed: () async {
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("ОТМЕНА"),
+          ),
+          ElevatedButton(
+            onPressed: isOffline
+                ? null
+                : () async {
                     if (formKey.currentState!.validate()) {
-                      widget.onChanged();
-                      await _loadCategoryData();
-                      if (ctx.mounted) Navigator.pop(ctx);
+                      final success = existing == null
+                          ? await repository.addCategory(nameController.text)
+                          : await repository.updateCategory(
+                              existing['categoryId'],
+                              nameController.text,
+                            );
+                      if (success) {
+                        widget.onChanged();
+                        await _loadCategoryData();
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      }
                     }
                   },
-                  child: _buttonText("СОХРАНИТЬ"),
-                ),
-              ),
-            ],
+            child: Text(isOffline ? "ОФЛАЙН" : "СОХРАНИТЬ"),
           ),
         ],
       ),
@@ -158,75 +148,27 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
           ? existingLimit['limitAmount'].toString()
           : "",
     );
-    final colors = Theme.of(context).colorScheme;
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              "Лимит на месяц",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            if (existingLimit != null)
-              IconButton(
-                onPressed: () async {
-                  if (await api.deleteLimit(existingLimit['id'])) {
-                    widget.onChanged();
-                    await _loadCategoryData();
-                    if (ctx.mounted) Navigator.pop(ctx);
-                  }
-                },
-                icon: Icon(Icons.delete_outline, color: colors.error),
-              ),
-          ],
+        title: const Text("Лимит на месяц"),
+        content: CustomerEdit(
+          controller: limitController,
+          label: "Сумма",
+          icon: Icons.speed,
+          keyboardType: TextInputType.number,
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CustomerEdit(
-              controller: limitController,
-              label: "Сумма (${widget.currencySymbol})",
-              icon: Icons.speed,
-              keyboardType: TextInputType.number,
-            ),
-          ],
-        ),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 45),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    side: BorderSide(
-                      color: colors.outline.withValues(alpha: 0.5),
-                    ),
-                  ),
-                  onPressed: () => Navigator.pop(ctx),
-                  child: _buttonText("ОТМЕНА"),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(0, 45),
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  onPressed: () async {
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("ОТМЕНА"),
+          ),
+          ElevatedButton(
+            // БЛОКИРОВКА КНОПКИ
+            onPressed: isOffline
+                ? null
+                : () async {
                     final amount = double.tryParse(limitController.text) ?? 0;
                     final data = {
                       "limitAmount": amount,
@@ -234,18 +176,18 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                       "walletId": widget.billId,
                     };
                     final ok = existingLimit == null
-                        ? await api.addLimit(data)
-                        : await api.updateLimit(existingLimit['id'], data);
+                        ? await repository.addLimit(data)
+                        : await repository.updateLimit(
+                            existingLimit['id'],
+                            data,
+                          );
                     if (ok) {
                       widget.onChanged();
                       await _loadCategoryData();
                       if (ctx.mounted) Navigator.pop(ctx);
                     }
                   },
-                  child: _buttonText("ОК"),
-                ),
-              ),
-            ],
+            child: Text(isOffline ? "ОФЛАЙН" : "ОК"),
           ),
         ],
       ),
@@ -370,11 +312,15 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                                       IconButton(
                                         icon: Icon(
                                           Icons.edit_note,
-                                          color: colors.primary,
+                                          color: isOffline
+                                              ? Colors.grey
+                                              : colors.primary,
                                           size: 22,
                                         ),
-                                        onPressed: () =>
-                                            _openManageCategory(existing: c),
+                                        onPressed: () => _checkAndOpen(
+                                          () =>
+                                              _openManageCategory(existing: c),
+                                        ),
                                       ),
                                     IconButton(
                                       icon: Icon(
@@ -388,8 +334,10 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                                               ),
                                         size: 22,
                                       ),
-                                      onPressed: () =>
-                                          _openLimitManage(categoryId, limit),
+                                      onPressed: () => _checkAndOpen(
+                                        () =>
+                                            _openLimitManage(categoryId, limit),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -409,10 +357,8 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                 bottom: 0,
                 right: 0,
                 child: FloatingActionButton(
-                  backgroundColor: colors.primary,
-                  foregroundColor: colors.onPrimary,
-                  elevation: 4,
-                  onPressed: () => _openManageCategory(),
+                  backgroundColor: isOffline ? Colors.grey : colors.primary,
+                  onPressed: () => _checkAndOpen(() => _openManageCategory()),
                   child: const Icon(Icons.add),
                 ),
               ),
@@ -441,5 +387,48 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
         );
       }).toList(),
     );
+  }
+
+  Future<void> _checkAndOpen(Function openDialog) async {
+    final connectivityResults = await Connectivity().checkConnectivity();
+
+    if (!mounted) return;
+
+    if (connectivityResults == ConnectivityResult.none) {
+      setState(() => isOffline = true);
+      OverlayToastService.show(
+        context,
+        message: "Нет интернет-соединения.",
+        isError: false,
+      );
+      return;
+    }
+
+    try {
+      final bool isOnline = await repository.isServerAvailable();
+
+      if (!mounted) return;
+
+      setState(() => isOffline = !isOnline);
+
+      if (!isOnline) {
+        OverlayToastService.show(
+          context,
+          message: "Сервер недоступен. Попробуйте позже.",
+          isError: false,
+        );
+        return;
+      }
+
+      openDialog();
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() => isOffline = true);
+      OverlayToastService.show(
+        context,
+        message: "Ошибка подключения к серверу.",
+      );
+    }
   }
 }

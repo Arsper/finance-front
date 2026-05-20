@@ -111,7 +111,7 @@ class Dioclient {
       if (refreshToken == null) return null;
 
       final response = await Dio().post(
-        'http://localhost:8080/api/auth/refresh-token',
+        'https://finance-api-production-52ac.up.railway.app/api/auth/refresh-token',
         data: {'refreshToken': refreshToken},
         options: Options(headers: {'Content-Type': 'application/json'}),
       );

@@ -27,11 +27,11 @@ class WalletFormSheetState extends State<WalletFormSheet> {
   late TextEditingController nameController;
   late TextEditingController balanceController;
   late TextEditingController currencyController;
+  late final FocusNode _balanceFocusNode;
   int? selectedCurrencyId;
 
   final List<Currency> _fallbackCurrencies = [
     Currency(idCurrencies: 1, code: 'USD', name: 'US Dollar', symbol: '\$'),
-
     Currency(idCurrencies: 2, code: 'EUR', name: 'Euro', symbol: '€'),
     Currency(idCurrencies: 3, code: 'RUB', name: 'Russian Ruble', symbol: '₽'),
     Currency(
@@ -56,6 +56,9 @@ class WalletFormSheetState extends State<WalletFormSheet> {
           ? "0"
           : widget.existingWallet!['currentBalance']?.toString(),
     );
+
+    _balanceFocusNode = FocusNode();
+    _balanceFocusNode.addListener(_onBalanceFocusChange);
 
     final rawId = widget.existingWallet?['currencyId'];
     if (rawId != null) {
@@ -87,9 +90,23 @@ class WalletFormSheetState extends State<WalletFormSheet> {
     currencyController = TextEditingController(text: initialCode);
   }
 
+  void _onBalanceFocusChange() {
+    if (_balanceFocusNode.hasFocus) {
+      if (balanceController.text == "0") {
+        balanceController.clear();
+      }
+    } else {
+      if (balanceController.text.trim().isEmpty) {
+        balanceController.text = "0";
+      }
+    }
+  }
+
   @override
   void dispose() {
     nameController.dispose();
+    _balanceFocusNode.removeListener(_onBalanceFocusChange);
+    _balanceFocusNode.dispose();
     balanceController.dispose();
     currencyController.dispose();
     super.dispose();
@@ -152,6 +169,8 @@ class WalletFormSheetState extends State<WalletFormSheet> {
                   flex: 3,
                   child: CustomerEdit(
                     controller: balanceController,
+                    focusNode:
+                        _balanceFocusNode,
                     label: 'Баланс',
                     icon: Icons.attach_money,
                     keyboardType: const TextInputType.numberWithOptions(

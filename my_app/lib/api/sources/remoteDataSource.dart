@@ -680,4 +680,22 @@ class UserRemoteDataSource {
       return {"exceeded": false, "diff": 0.0};
     }
   }
+
+  Future<bool> checkServerHealth() async {
+    try {
+      final response = await dio.get(
+        UrlParameters.currenciesUrl,
+        options: Options(receiveTimeout: const Duration(seconds: 3)),
+      );
+
+      if (response.statusCode != null && response.statusCode! >= 500) {
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint("API: Сервер недоступен или таймаут: $e");
+      return false;
+    }
+  }
 }

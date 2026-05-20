@@ -7,6 +7,7 @@ import 'package:my_app/helpers/AuthStorageService.dart';
 import 'package:my_app/helpers/ThemeStorageService.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 const Color primaryAccent = Color(0xFF8B5CF6);
 const Color onPrimaryColor = Colors.white;
@@ -84,6 +85,7 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: navigatorKey,
+      scaffoldMessengerKey: scaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
       themeMode: _themeMode,
       theme: ThemeData(
