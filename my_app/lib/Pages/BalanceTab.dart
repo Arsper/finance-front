@@ -6,6 +6,7 @@ import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/data/сurrency.dart';
 import 'package:my_app/api/sources/local_storage_service.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
+import 'package:my_app/repositories/transaction_repository.dart';
 import 'package:my_app/repositories/wallet_repository.dart';
 
 class BalanceTab extends StatefulWidget {
@@ -17,6 +18,8 @@ class BalanceTab extends StatefulWidget {
 
 class _BalanceTabState extends State<BalanceTab> {
   late final WalletRepository walletRepository;
+  late final TransactionRepository transactionRepository;
+  final LocalStorageService localStorage = LocalStorageService();
 
   List<dynamic> wallets = [];
   List<Currency> currencies = [];
@@ -25,10 +28,15 @@ class _BalanceTabState extends State<BalanceTab> {
   @override
   void initState() {
     super.initState();
+    final remoteSource = UserRemoteDataSource(dio: Dioclient.instance);
+
     walletRepository = WalletRepository(
-      remoteDataSource: UserRemoteDataSource(dio: Dioclient.instance),
-      localDataSource: LocalStorageService(),
+      remoteDataSource: remoteSource,
+      localDataSource: localStorage,
     );
+
+    transactionRepository = TransactionRepository(remoteSource, localStorage);
+
     _refreshData();
   }
 
@@ -41,9 +49,34 @@ class _BalanceTabState extends State<BalanceTab> {
   Future<void> _refreshData() async {
     if (!mounted) return;
     setState(() => isLoading = true);
+
     try {
+      final cachedWallets = await localStorage.getWallets();
+
+      if (mounted && cachedWallets.isNotEmpty) {
+        setState(() {
+          wallets = cachedWallets
+              .where((w) => w['isDeletedOffline'] != true)
+              .toList();
+          isLoading = false;
+        });
+      }
+
+      final bool isOnline = await transactionRepository.isServerAvailable();
+
+      if (isOnline) {
+        await transactionRepository.syncOfflineTransactions();
+
+        await walletRepository.syncOfflineWallets();
+      } else {
+        debugPrint(
+          "BALANCE_TAB: Сервер недоступен. Работаем в оффлайн-режиме.",
+        );
+      }
+
       final w = await walletRepository.getWallets();
       final c = await walletRepository.getCurrencies();
+
       if (mounted) {
         setState(() {
           wallets = w;
@@ -52,7 +85,7 @@ class _BalanceTabState extends State<BalanceTab> {
         });
       }
     } catch (e) {
-      debugPrint("Ошибка загрузки данных: $e");
+      debugPrint("Ошибка при полном обновлении данных BalanceTab: $e");
       if (mounted) setState(() => isLoading = false);
     }
   }

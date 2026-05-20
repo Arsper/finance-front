@@ -43,10 +43,11 @@ class _TransactionFormState extends State<TransactionForm> {
   @override
   void initState() {
     super.initState();
+    final num? rawAmount =
+        widget.existing?['amount'] ?? widget.existing?['sum'];
+
     amountController = TextEditingController(
-      text: widget.existing != null
-          ? (widget.existing!['amount'] as num).abs().toString()
-          : "",
+      text: rawAmount != null ? rawAmount.abs().toString() : "",
     );
     descController = TextEditingController(
       text: widget.existing?['description'] ?? "",
@@ -58,9 +59,7 @@ class _TransactionFormState extends State<TransactionForm> {
     );
 
     selectedCategoryId = widget.existing?['categoryId'];
-    isIncome = widget.existing != null
-        ? (widget.existing!['amount'] as num) > 0
-        : false;
+    isIncome = rawAmount != null ? rawAmount > 0 : false;
 
     final initialCat = widget.categories.firstWhere(
       (c) => (c['categoryId'] ?? c['id']) == selectedCategoryId,

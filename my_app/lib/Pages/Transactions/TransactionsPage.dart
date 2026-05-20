@@ -6,6 +6,9 @@ import 'package:my_app/Pages/Transactions/components/filter_screen.dart';
 import 'package:my_app/Pages/Transactions/components/transaction_filter_service.dart';
 import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
+import 'package:my_app/api/sources/local_storage_service.dart';
+import 'package:my_app/repositories/transaction_repository.dart';
+import 'package:my_app/repositories/wallet_repository.dart';
 import 'components/transaction_form.dart';
 import 'components/category_search_picker.dart';
 
@@ -26,15 +29,15 @@ class TransactionsPage extends StatefulWidget {
 }
 
 class _TransactionsPageState extends State<TransactionsPage> {
-  final UserRemoteDataSource api = UserRemoteDataSource(
-    dio: Dioclient.instance,
-  );
+  late final TransactionRepository repository;
+  final LocalStorageService localStorage = LocalStorageService();
   final ScrollController _scrollController = ScrollController();
 
   bool get _isFilterActive => !_currentFilters.isEmpty;
-  List<dynamic> allTransactions = [];
-  List<dynamic> categories = [];
-  List<dynamic> activeLimits = [];
+  List<Map<String, dynamic>> allTransactions = [];
+  List<Map<String, dynamic>> categories = [];
+  List<Map<String, dynamic>> activeLimits = [];
+
   bool isLoading = true;
   bool isLoadMoreLoading = false;
   bool hasMore = true;
@@ -43,21 +46,28 @@ class _TransactionsPageState extends State<TransactionsPage> {
 
   double currentBillBalance = 0.0;
   TransactionFilters _currentFilters = TransactionFilters();
+  bool isOffline = false;
 
   @override
   void initState() {
     super.initState();
+    repository = TransactionRepository(
+      UserRemoteDataSource(dio: Dioclient.instance),
+      localStorage,
+    );
     _initialLoad();
     _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
   }
 
   void _onScroll() {
+    if (!mounted) return;
     if (_scrollController.position.pixels >=
         _scrollController.position.maxScrollExtent - 200) {
       _loadMoreTransactions();
@@ -70,46 +80,118 @@ class _TransactionsPageState extends State<TransactionsPage> {
       isLoading = true;
       currentPage = 0;
       hasMore = true;
-      allTransactions.clear();
     });
 
+    final cachedTx = await localStorage.getTransactions(widget.billId);
+    debugPrint("DEBUG [Load]: Данные из локального кэша: $cachedTx");
+    final cachedWallets = await localStorage.getWallets();
+    final cachedCategories = await localStorage.getCategories();
+
+    final currentWallet = cachedWallets.firstWhere(
+      (w) => w['billId']?.toString() == widget.billId.toString(),
+      orElse: () => {'currentBalance': 0.0},
+    );
+
+    if (mounted && cachedTx.isNotEmpty) {
+      final List<Map<String, dynamic>> localCategories =
+          List<Map<String, dynamic>>.from(cachedCategories);
+
+      final List<Map<String, dynamic>> enrichedCachedTx = cachedTx
+          .where((tx) => tx['localDeleted'] != true)
+          .map((tx) {
+            final Map<String, dynamic> mutableTx = Map<String, dynamic>.from(
+              tx,
+            );
+            final int? catId = int.tryParse(
+              mutableTx['categoryId']?.toString() ?? '',
+            );
+
+            if (catId != null && localCategories.isNotEmpty) {
+              final foundCat = localCategories.firstWhere((c) {
+                final dynamic rawId =
+                    c['categoryId'] ?? c['id'] ?? c['idCategory'];
+                return rawId?.toString() == catId.toString();
+              }, orElse: () => <String, dynamic>{});
+              if (foundCat.isNotEmpty) {
+                final String? actualName =
+                    (foundCat['name'] ?? foundCat['categoryName'])?.toString();
+                if (actualName != null) {
+                  mutableTx['categoryName'] = actualName;
+                }
+              }
+            }
+            return mutableTx;
+          })
+          .toList();
+
+      setState(() {
+        allTransactions = enrichedCachedTx;
+        categories = localCategories;
+        currentBillBalance = (currentWallet['currentBalance'] as num? ?? 0.0)
+            .toDouble();
+        isLoading = false;
+      });
+    }
+
+    final bool online = await repository.isServerAvailable();
+    if (mounted) setState(() => isOffline = !online);
+
+    if (!online) {
+      if (mounted) setState(() => isLoading = false);
+      return;
+    }
+
     try {
+      final walletRepo = WalletRepository(
+        remoteDataSource: repository.remote,
+        localDataSource: localStorage,
+      );
+      await repository.syncOfflineTransactions();
+
+      await walletRepo.syncOfflineWallets();
+    } catch (e) {
+      debugPrint(
+        "UI [SYNC] ERROR: Ошибка при последовательной очистке оффлайн-очереди: $e",
+      );
+    }
+
+    try {
+      final walletRepo = WalletRepository(
+        remoteDataSource: repository.remote,
+        localDataSource: localStorage,
+      );
+
       final results = await Future.wait([
-        api
-            .getTransactions(
-              billId: widget.billId,
-              page: currentPage,
-              size: pageSize,
-              filters: _currentFilters,
-            )
-            .catchError((e) {
-              debugPrint("Ошибка загрузки транзакций: $e");
-              return <dynamic>[];
-            }),
-        api.getCategories().catchError((e) {
-          return <dynamic>[];
-        }),
-        api.getWallets().catchError((e) {
-          return <dynamic>[];
-        }),
-        api.getLimits(widget.billId).catchError((e) {
-          return <dynamic>[];
-        }),
+        repository.getTransactions(
+          billId: widget.billId,
+          page: currentPage,
+          size: pageSize,
+          filters: _currentFilters,
+        ),
+        repository.remote.getCategories().catchError((_) => <dynamic>[]),
+        walletRepo.getWallets().catchError((_) => <dynamic>[]),
+        repository.remote
+            .getLimits(widget.billId)
+            .catchError((_) => <dynamic>[]),
       ]);
 
       final List<dynamic> txResult = results[0];
       final List<dynamic> wallets = results[2];
-      final currentWallet = wallets.firstWhere(
+      final freshWallet = wallets.firstWhere(
         (w) => w['billId']?.toString() == widget.billId.toString(),
         orElse: () => {'currentBalance': 0.0},
       );
 
+      if (results[1].isNotEmpty) await localStorage.saveCategories(results[1]);
+
       if (!mounted) return;
       setState(() {
-        allTransactions = txResult;
-        categories = results[1];
-        activeLimits = results[3];
-        currentBillBalance = (currentWallet['currentBalance'] as num? ?? 0.0)
+        allTransactions = List<Map<String, dynamic>>.from(txResult);
+        categories = results[1].isNotEmpty
+            ? List<Map<String, dynamic>>.from(results[1])
+            : categories;
+        activeLimits = List<Map<String, dynamic>>.from(results[3]);
+        currentBillBalance = (freshWallet['currentBalance'] as num? ?? 0.0)
             .toDouble();
 
         if (txResult.length < pageSize) {
@@ -119,19 +201,18 @@ class _TransactionsPageState extends State<TransactionsPage> {
         isLoading = false;
       });
     } catch (e) {
+      debugPrint("Ошибка обновления данных через сеть: $e");
       if (mounted) setState(() => isLoading = false);
     }
   }
 
   Future<void> _loadMoreTransactions() async {
-    if (isLoadMoreLoading || !hasMore) {
-      return;
-    }
+    if (isLoadMoreLoading || !hasMore || isOffline) return;
 
     setState(() => isLoadMoreLoading = true);
 
     try {
-      final List<dynamic> newTx = await api.getTransactions(
+      final List<dynamic> newTx = await repository.getTransactions(
         billId: widget.billId,
         page: currentPage,
         size: pageSize,
@@ -143,7 +224,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
         if (newTx.length < pageSize) {
           hasMore = false;
         }
-        allTransactions.addAll(newTx);
+        allTransactions.addAll(List<Map<String, dynamic>>.from(newTx));
         currentPage++;
         isLoadMoreLoading = false;
       });
@@ -173,15 +254,37 @@ class _TransactionsPageState extends State<TransactionsPage> {
   @override
   Widget build(BuildContext context) {
     final stats = _calculateDailyStats();
+    final bool hasPendingSync = allTransactions.any(
+      (tx) => tx['localUpdated'] == true || tx['isSynced'] == false,
+    );
 
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              widget.billName,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    widget.billName,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (isOffline) ...[
+                  const SizedBox(width: 6),
+                  Icon(
+                    Icons.cloud_off,
+                    size: 14,
+                    color: hasPendingSync ? Colors.orange : Colors.grey,
+                  ),
+                ],
+              ],
             ),
             Text(
               "Остаток: ${currentBillBalance.toStringAsFixed(2)} ${widget.currencySymbol}",
@@ -198,18 +301,20 @@ class _TransactionsPageState extends State<TransactionsPage> {
           IconButton(
             icon: const Icon(Icons.analytics_outlined),
             tooltip: "Статистика",
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => BillStatisticsPage(
-                    billId: widget.billId,
-                    billName: widget.billName,
-                    currencySymbol: widget.currencySymbol,
-                  ),
-                ),
-              );
-            },
+            onPressed: isOffline
+                ? null
+                : () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => BillStatisticsPage(
+                          billId: widget.billId,
+                          billName: widget.billName,
+                          currencySymbol: widget.currencySymbol,
+                        ),
+                      ),
+                    );
+                  },
           ),
           IconButton(
             onPressed: _openFilters,
@@ -234,7 +339,8 @@ class _TransactionsPageState extends State<TransactionsPage> {
                         : ListView.builder(
                             controller: _scrollController,
                             itemCount:
-                                allTransactions.length + (hasMore ? 1 : 0),
+                                allTransactions.length +
+                                (hasMore && !isOffline ? 1 : 0),
                             itemBuilder: (context, index) {
                               if (index == allTransactions.length) {
                                 return const Padding(
@@ -268,7 +374,9 @@ class _TransactionsPageState extends State<TransactionsPage> {
               ],
             ),
       floatingActionButton: AppFloatingButton(
-        onPressed: () => _openTransactionForm(),
+        onPressed: () {
+          _openTransactionForm();
+        },
       ),
     );
   }
@@ -305,11 +413,11 @@ class _TransactionsPageState extends State<TransactionsPage> {
 
   Widget _buildDateHeader(String dateStr) {
     if (dateStr.isEmpty) return const SizedBox.shrink();
+    final parsedDate = DateTime.tryParse(dateStr);
+    if (parsedDate == null) return const SizedBox.shrink();
+
     try {
-      String formatted = DateFormat(
-        'EEEE, d MMMM',
-        'ru',
-      ).format(DateTime.parse(dateStr));
+      String formatted = DateFormat('EEEE, d MMMM', 'ru').format(parsedDate);
       return Padding(
         padding: const EdgeInsets.only(left: 16, top: 20, bottom: 8),
         child: Text(
@@ -331,13 +439,24 @@ class _TransactionsPageState extends State<TransactionsPage> {
     final num sumVal = t['sum'] ?? t['amount'] ?? 0;
     final isExpense = sumVal < 0;
 
+    final bool isLocalChanged =
+        (t['localUpdated'] == true) || (t['isSynced'] == false);
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.withValues(alpha: 0.1)),
+        side: BorderSide(
+          color: isLocalChanged
+              ? Colors.orange.withValues(alpha: 0.8)
+              : Colors.grey.withValues(alpha: 0.1),
+          width: isLocalChanged ? 1.5 : 1.0,
+        ),
       ),
+      color: isLocalChanged
+          ? Colors.orange.withValues(alpha: 0.04)
+          : Theme.of(context).cardColor,
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: (isExpense ? Colors.red : Colors.green).withValues(
@@ -348,8 +467,29 @@ class _TransactionsPageState extends State<TransactionsPage> {
             color: isExpense ? Colors.red : Colors.green,
           ),
         ),
-        title: Text(
-          t['description']?.isEmpty ?? true ? "Без описания" : t['description'],
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                (t['description'] == null ||
+                        t['description'].toString().isEmpty)
+                    ? "Без описания"
+                    : t['description'],
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (isLocalChanged) ...[
+              const SizedBox(width: 6),
+              const Tooltip(
+                message: "Изменено локально (ожидает синхронизации)",
+                child: Icon(
+                  Icons.access_time_rounded,
+                  size: 16,
+                  color: Colors.orange,
+                ),
+              ),
+            ],
+          ],
         ),
         subtitle: Text(t['categoryName'] ?? "Без категории"),
         trailing: Text(
@@ -359,7 +499,9 @@ class _TransactionsPageState extends State<TransactionsPage> {
             color: isExpense ? Colors.red : Colors.green,
           ),
         ),
-        onTap: () => _openTransactionForm(existing: t),
+        onTap: () {
+          _openTransactionForm(existing: t);
+        },
       ),
     );
   }
@@ -381,7 +523,12 @@ class _TransactionsPageState extends State<TransactionsPage> {
               existing?['idTransaction'] ??
               existing?['id'] ??
               existing?['transactionId'];
-          if (txId == null) return;
+          if (txId == null) {
+            debugPrint(
+              "UI Error: Не удалось найти ID транзакции для удаления в переданном объекте.",
+            );
+            return;
+          }
 
           final bool? confirm = await showDialog<bool>(
             context: context,
@@ -404,9 +551,14 @@ class _TransactionsPageState extends State<TransactionsPage> {
             ),
           );
 
-          if (confirm == true && await api.deleteTransaction(txId)) {
-            await _initialLoad();
-            if (ctx.mounted) Navigator.pop(ctx);
+          if (confirm == true) {
+            try {
+              await repository.deleteTransaction(widget.billId, txId);
+              await _initialLoad();
+              if (ctx.mounted) Navigator.pop(ctx);
+            } catch (e) {
+              debugPrint("UI Error: Ошибка при удалении транзакции: $e");
+            }
           }
         },
       ),
@@ -431,15 +583,17 @@ class _TransactionsPageState extends State<TransactionsPage> {
     Map<String, dynamic> data,
     Map<String, dynamic>? existing,
   ) async {
-    final num? rawAmount = data['sum'] ?? data['amount'];
-    if (rawAmount == null) return;
+    final num? rawAmount = data['amount'] ?? data['sum'];
+    if (rawAmount == null) {
+      return;
+    }
 
     final double amount = rawAmount.toDouble();
     final int? categoryId = data['categoryId'];
 
-    if (amount < 0 && categoryId != null) {
+    if (!isOffline && amount < 0 && categoryId != null) {
       try {
-        final limitStatus = await api.checkLimit(
+        final limitStatus = await repository.remote.checkLimit(
           billId: widget.billId,
           categoryId: categoryId,
           amount: amount.abs(),
@@ -483,10 +637,17 @@ class _TransactionsPageState extends State<TransactionsPage> {
               ) ??
               false;
 
-          if (!confirm) return;
+          if (!confirm) {
+            debugPrint(
+              "UI: Пользователь отменил сохранение из-за превышения лимита.",
+            );
+            return;
+          }
         }
       } catch (e) {
-        debugPrint("Ошибка проверки лимита: $e");
+        debugPrint(
+          "UI Warning: Не удалось проверить лимиты через сервер: $e. Продолжаем сохранение.",
+        );
       }
     }
 
@@ -496,14 +657,16 @@ class _TransactionsPageState extends State<TransactionsPage> {
             existing['idTransaction'] ??
             existing['id'] ??
             existing['transactionId'];
-        await api.updateTransaction(txId, data);
+        await repository.updateTransaction(widget.billId, txId, data);
       } else {
-        await api.addTransaction({...data, "billId": widget.billId});
+        await repository.addTransaction(widget.billId, data);
       }
       await _initialLoad();
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      debugPrint("Ошибка сохранения: $e");
+      debugPrint(
+        "UI Error: Ошибка при сохранении транзакции через репозиторий: $e",
+      );
     }
   }
 
