@@ -21,7 +21,9 @@ class TransactionRepository {
       for (var wallet in wallets) {
         final int billId =
             int.tryParse(wallet['billId']?.toString() ?? '0') ?? 0;
-        if (billId == 0) continue;
+        if (billId <= 0) {
+          continue;
+        }
 
         final List<dynamic> cachedTx = await local.getTransactions(billId);
         if (cachedTx.isEmpty) continue;
@@ -81,11 +83,12 @@ class TransactionRepository {
               if (idx != -1) {
                 updatedList[idx]['isNewOffline'] = false;
                 updatedList[idx]['isSynced'] = true;
+                updatedList[idx]['justSynced'] = true;
                 isCacheChanged = true;
               }
             } catch (e) {
               debugPrint(
-                "REPO [TX SYNC] ERROR: Ошибка создания оффлайн TX: $e",
+                "REPO [TX SYNC] ERROR: Ошибка создания оффлайн TX на сервере: $e",
               );
             }
           } else if (tx['localUpdated'] == true) {
@@ -142,7 +145,7 @@ class TransactionRepository {
         await syncOfflineTransactions();
       } catch (e) {
         debugPrint(
-          "REPO [SYNC WARN]: Сеть недоступна, пропускаем авто-синхронизацию.",
+          "REPO [SYNC WARN]: Ошибка авто-синхронизации транзакций: $e",
         );
       }
     }
@@ -156,7 +159,38 @@ class TransactionRepository {
       );
 
       if (page == 0 && filters.isEmpty) {
-        await local.saveTransactions(billId, freshData);
+        final List<dynamic> localTx = await local.getTransactions(billId);
+
+        final safetyItems = localTx.where((tx) {
+          return tx['isNewOffline'] == true ||
+              tx['localUpdated'] == true ||
+              tx['localDeleted'] == true ||
+              tx['justSynced'] == true;
+        }).toList();
+
+        for (var item in safetyItems) {
+          item.remove('justSynced');
+        }
+
+        final List<dynamic> mergedList = [...safetyItems];
+        for (var serverTx in freshData) {
+          final sId =
+              serverTx['idTransaction'] ??
+              serverTx['id'] ??
+              serverTx['transactionId'];
+          bool alreadyExists = mergedList.any((localTx) {
+            final lId =
+                localTx['idTransaction'] ??
+                localTx['id'] ??
+                localTx['transactionId'];
+            return lId == sId;
+          });
+          if (!alreadyExists) {
+            mergedList.add(serverTx);
+          }
+        }
+
+        await local.saveTransactions(billId, mergedList);
       }
 
       return freshData;
@@ -187,9 +221,7 @@ class TransactionRepository {
       );
 
       final int startIndex = page * size;
-      if (startIndex >= filteredAndSorted.length) {
-        return [];
-      }
+      if (startIndex >= filteredAndSorted.length) return [];
 
       final int endIndex = (startIndex + size) > filteredAndSorted.length
           ? filteredAndSorted.length
@@ -201,14 +233,11 @@ class TransactionRepository {
 
   Future<void> addTransaction(int billId, Map<String, dynamic> data) async {
     final online = await isServerAvailable();
-
     final Map<String, dynamic> enrichedData = Map<String, dynamic>.from(data);
     final int? categoryId = enrichedData['categoryId'];
     if (categoryId != null) {
       final String? catName = await _getLocalCategoryName(categoryId);
-      if (catName != null) {
-        enrichedData['categoryName'] = catName;
-      }
+      if (catName != null) enrichedData['categoryName'] = catName;
     }
 
     if (online) {
@@ -224,14 +253,11 @@ class TransactionRepository {
     Map<String, dynamic> data,
   ) async {
     final online = await isServerAvailable();
-
     final Map<String, dynamic> enrichedData = Map<String, dynamic>.from(data);
     final int? categoryId = enrichedData['categoryId'];
     if (categoryId != null) {
       final String? catName = await _getLocalCategoryName(categoryId);
-      if (catName != null) {
-        enrichedData['categoryName'] = catName;
-      }
+      if (catName != null) enrichedData['categoryName'] = catName;
     }
 
     if (online) {
@@ -271,9 +297,7 @@ class TransactionRepository {
         }
       }
     } catch (e) {
-      debugPrint(
-        "REPO ERROR [_getLocalCategoryName]: Не удалось прочитать имя категории: $e",
-      );
+      debugPrint("REPO ERROR [_getLocalCategoryName]: $e");
     }
     return null;
   }

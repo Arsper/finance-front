@@ -29,18 +29,19 @@ class WalletRepository {
 
     for (var i = 0; i < localWallets.length; i++) {
       final wallet = localWallets[i];
-      final int billId = int.tryParse(wallet['billId']?.toString() ?? '0') ?? 0;
+      final int oldBillId =
+          int.tryParse(wallet['billId']?.toString() ?? '0') ?? 0;
 
       if (wallet['isDeletedOffline'] == true) {
-        if (billId > 0) {
+        if (oldBillId > 0) {
           try {
-            final success = await remoteDataSource.deleteWallet(billId);
+            final success = await remoteDataSource.deleteWallet(oldBillId);
             if (success) {
-              updatedLocalList.removeWhere((w) => w['billId'] == billId);
+              updatedLocalList.removeWhere((w) => w['billId'] == oldBillId);
             }
           } catch (_) {}
         } else {
-          updatedLocalList.removeWhere((w) => w['billId'] == billId);
+          updatedLocalList.removeWhere((w) => w['billId'] == oldBillId);
         }
         continue;
       }
@@ -50,22 +51,51 @@ class WalletRepository {
           final Map<String, dynamic> serverData = {
             "name": wallet['name'],
             "type": wallet['type'] ?? 'Debit',
-            "startBalance": wallet['startBalance'] ?? 0.0,
+            "startBalance":
+                wallet['startBalance'] ?? wallet['currentBalance'] ?? 0.0,
             "currencyId": wallet['currencyId'],
           };
 
           final success = await remoteDataSource.addWallet(serverData);
           if (success) {
-            final idx = updatedLocalList.indexWhere(
-              (w) => w['billId'] == billId,
-            );
-            if (idx != -1) {
-              updatedLocalList[idx]['isNewOffline'] = false;
-              updatedLocalList[idx]['isSynced'] = true;
+            final freshRemoteWallets = await remoteDataSource.getWallets();
+
+            Map<String, dynamic>? serverWallet;
+            final String localName =
+                wallet['name']?.toString().trim().toLowerCase() ?? '';
+
+            for (var rw in freshRemoteWallets) {
+              final String rwName = (rw['name'] ?? rw['billName'] ?? '')
+                  .toString()
+                  .trim()
+                  .toLowerCase();
+
+              if (rwName == localName) {
+                serverWallet = Map<String, dynamic>.from(rw as Map);
+                break;
+              }
             }
-            debugPrint(
-              "Кошелек '${wallet['name']}' успешно синхронизирован с сервером.",
-            );
+
+            if (serverWallet != null) {
+              final int newServerId =
+                  int.tryParse(
+                    serverWallet['billId']?.toString() ??
+                        serverWallet['idBills']?.toString() ??
+                        serverWallet['id']?.toString() ??
+                        '0',
+                  ) ??
+                  0;
+
+              if (newServerId > 0) {
+                await localDataSource.migrateOfflineTransactions(
+                  oldTemporaryId: oldBillId,
+                  newServerId: newServerId,
+                );
+
+                updatedLocalList.removeWhere((w) => w['billId'] == oldBillId);
+                continue;
+              }
+            }
           }
         } catch (e) {
           debugPrint("Ошибка при отправке оффлайн кошелька: $e");
@@ -73,24 +103,26 @@ class WalletRepository {
         continue;
       }
 
-      if (wallet['isSynced'] == false && billId > 0) {
+      if (wallet['isWalletEditedOffline'] == true && oldBillId > 0) {
         try {
           final Map<String, dynamic> serverData = {
             "name": wallet['name'],
             "type": wallet['type'] ?? 'Debit',
-            "startBalance": wallet['startBalance'] ?? 0.0,
+            "startBalance":
+                wallet['startBalance'] ?? wallet['currentBalance'] ?? 0.0,
             "currencyId": wallet['currencyId'],
           };
 
           final success = await remoteDataSource.updateWallet(
-            billId,
+            oldBillId,
             serverData,
           );
           if (success) {
             final idx = updatedLocalList.indexWhere(
-              (w) => w['billId'] == billId,
+              (w) => w['billId'] == oldBillId,
             );
             if (idx != -1) {
+              updatedLocalList[idx]['isWalletEditedOffline'] = false;
               updatedLocalList[idx]['isSynced'] = true;
             }
           }
@@ -105,7 +137,6 @@ class WalletRepository {
   Future<List<dynamic>> getWallets() async {
     try {
       await remoteDataSource.getCurrencies();
-
       await syncOfflineWallets();
 
       final remoteWallets = await remoteDataSource.getWallets();
@@ -127,20 +158,29 @@ class WalletRepository {
 
         final locallyEdited = localWallets.firstWhere((lw) {
           final int localId =
-              int.tryParse(
-                lw['billId']?.toString() ??
-                    lw['idBills']?.toString() ??
-                    lw['id']?.toString() ??
-                    '0',
-              ) ??
-              0;
+              int.tryParse(lw['billId']?.toString() ?? '0') ?? 0;
           return localId == remoteId &&
               lw['isSynced'] == false &&
               lw['isDeletedOffline'] != true;
         }, orElse: () => null);
 
         if (locallyEdited != null) return locallyEdited;
-        return {...remote, 'isSynced': true};
+
+        final double serverBalance =
+            double.tryParse(
+              (remote['currentBalance'] ??
+                      remote['balance'] ??
+                      remote['startBalance'] ??
+                      '0.0')
+                  .toString(),
+            ) ??
+            0.0;
+        return {
+          ...remote,
+          'billId': remoteId,
+          'currentBalance': serverBalance,
+          'isSynced': true,
+        };
       }).toList();
 
       final totalList = [...updatedWallets, ...offlineCreated];
@@ -151,12 +191,8 @@ class WalletRepository {
       await localDataSource.saveWallets(totalList);
       return visibleList;
     } catch (e) {
-      debugPrint(
-        "Сеть недоступна или произошла ошибка. Читаем данные только из локального кэша: $e",
-      );
-
+      debugPrint("Сеть недоступна. Читаем кэш: $e");
       final localWallets = await localDataSource.getWallets();
-
       return localWallets.where((w) => w['isDeletedOffline'] != true).toList();
     }
   }
@@ -192,17 +228,19 @@ class WalletRepository {
       final success = await remoteDataSource.updateWallet(billId, serverData);
 
       if (success) {
+        data['isWalletEditedOffline'] = false;
         data['isSynced'] = true;
         data['billId'] = billId;
         await localDataSource.updateWalletOffline(billId, data);
         await getWallets();
         return true;
       }
-      data['isSynced'] = false;
+      data['isWalletEditedOffline'] = true;
       await localDataSource.updateWalletOffline(billId, data);
       return true;
     } catch (e) {
       debugPrint("Ошибка при обновлении кошелька: $e");
+      data['isWalletEditedOffline'] = true;
       await localDataSource.updateWalletOffline(billId, data);
       return true;
     }

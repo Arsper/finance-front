@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:my_app/api/sources/local_storage_service.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
-import 'package:my_app/Pages/Transactions/components/transaction_filter_service.dart';
 
 class SyncService {
   final UserRemoteDataSource remote;
@@ -14,7 +13,9 @@ class SyncService {
       debugPrint("SYNC: Проверка оффлайн-изменений для счета $billId...");
 
       List<dynamic> localTxList = await local.getTransactions(billId);
-      if (localTxList.isEmpty) return;
+      if (localTxList.isEmpty) {
+        return;
+      }
 
       List<dynamic> updatedLocalTxList = List.from(localTxList);
       bool hasChanges = false;
@@ -31,19 +32,24 @@ class SyncService {
               ..remove('isNewOffline')
               ..remove('categoryName');
 
+            body['billId'] = billId;
+
             await remote.addTransaction(body);
             updatedLocalTxList.removeWhere(
               (t) => (t['idTransaction'] ?? t['id']) == currentId,
             );
             hasChanges = true;
           } catch (e) {
-            debugPrint("SYNC: Ошибка отправки новой транзакции: $e");
+            debugPrint(
+              "SYNC ERROR: Ошибка отправки новой транзакции $currentId: $e",
+            );
           }
         } else if (tx['isUpdatedOffline'] == true) {
           try {
             final Map<String, dynamic> body = Map.from(tx)
               ..remove('isSynced')
-              ..remove('isUpdatedOffline');
+              ..remove('isUpdatedOffline')
+              ..remove('categoryName');
 
             await remote.updateTransaction(currentId, body);
 
@@ -56,7 +62,9 @@ class SyncService {
             }
             hasChanges = true;
           } catch (e) {
-            debugPrint("SYNC: Ошибка обновления транзакции: $e");
+            debugPrint(
+              "SYNC ERROR: Ошибка обновления транзакции $currentId: $e",
+            );
           }
         } else if (tx['isDeletedOffline'] == true) {
           try {
@@ -66,20 +74,14 @@ class SyncService {
             );
             hasChanges = true;
           } catch (e) {
-            debugPrint("SYNC: Ошибка удаления транзакции на сервере: $e");
+            debugPrint(
+              "SYNC ERROR: Ошибка удаления транзакции $currentId на сервере: $e",
+            );
           }
         }
       }
 
       if (hasChanges) {
-        final serverData = await remote.getTransactions(
-          billId: billId,
-          page: 0,
-          size: 20,
-          filters: TransactionFilters(),
-        );
-        await local.saveTransactions(billId, serverData);
-      } else {
         await local.saveTransactions(billId, updatedLocalTxList);
       }
 

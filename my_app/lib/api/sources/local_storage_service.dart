@@ -76,10 +76,9 @@ class LocalStorageService {
       double current = (wallets[index]['currentBalance'] as num? ?? 0.0)
           .toDouble();
       wallets[index]['currentBalance'] = current + delta;
-      wallets[index]['isSynced'] = false;
       await saveWallets(wallets);
       debugPrint(
-        "STORAGE: Баланс кошелька $billId изменен на $delta. Новый баланс: ${wallets[index]['currentBalance']}",
+        "STORAGE: Локальный баланс кошелька $billId обновлен на $delta. Новый: ${wallets[index]['currentBalance']}",
       );
     }
   }
@@ -146,7 +145,7 @@ class LocalStorageService {
     final transactions = await getTransactions(billId);
     final int temporaryTxId = DateTime.now().millisecondsSinceEpoch * -1;
 
-    final num amount = txData['sum'] ?? txData['amount'] ?? 0.0;
+    final num amount = txData['amount'] ?? 0.0;
 
     final newTx = {
       ...txData,
@@ -276,6 +275,32 @@ class LocalStorageService {
   Future<void> _queueForSync(int billId, dynamic txId, String action) async {
     debugPrint(
       "STORAGE: Действие $action для ID $txId поставлено в очередь синхронизации.",
+    );
+  }
+
+  Future<void> migrateOfflineTransactions({
+    required int oldTemporaryId,
+    required int newServerId,
+  }) async {
+    final transactions = await getTransactions(oldTemporaryId);
+    if (transactions.isEmpty) {
+      debugPrint(
+        "STORAGE [MIGRATION]: Офлайн транзакций для временного ID $oldTemporaryId не найдено.",
+      );
+      return;
+    }
+
+    final migratedTransactions = transactions.map((tx) {
+      return {...tx, 'billId': newServerId};
+    }).toList();
+
+    await saveTransactions(newServerId, migratedTransactions);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_getTransactionsKey(oldTemporaryId));
+
+    debugPrint(
+      "STORAGE [MIGRATION]: Успешно перенесено ${migratedTransactions.length} транзакций с ID $oldTemporaryId на реальный ID $newServerId",
     );
   }
 }
