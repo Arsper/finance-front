@@ -1,11 +1,13 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
+import 'package:my_app/Pages/Guide/%D1%81ategorySearch_page_guide.dart';
+import 'package:my_app/Pages/Guide/guide_manager.dart';
 import 'package:my_app/api/sources/local_storage_service.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
 import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/helpers/OverlayToastService.dart';
 import 'package:my_app/repositories/category_repository.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 
 class CategorySearchPicker extends StatefulWidget {
   final int billId;
@@ -30,27 +32,103 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
     UserRemoteDataSource(dio: Dioclient.instance),
     LocalStorageService(),
   );
+  final GuideManager _guideManager = GuideManager();
+
+  final GlobalKey _searchKey = GlobalKey();
+  final GlobalKey _filterChipsKey = GlobalKey();
+  final GlobalKey _systemCategoryKey = GlobalKey();
+  final GlobalKey _personalCategoryKey = GlobalKey();
+  final GlobalKey _limitButtonKey = GlobalKey();
+  final GlobalKey _addFabKey = GlobalKey();
 
   List<dynamic> categories = [];
   List<dynamic> activeLimits = [];
-  bool isLoading = true;
+  bool isLoading = false;
   String searchQuery = "";
   String filterType = "all";
   bool isOffline = false;
 
+  bool _isDemoMode = true;
+
+  final List<dynamic> _phantomCategories = [
+    {
+      'categoryId': -1,
+      'name': "Продукты (Демо)",
+      'isPersonal': false,
+      'userId': null,
+    },
+    {
+      'categoryId': -2,
+      'name': "Моё Хобби (Демо)",
+      'isPersonal': true,
+      'userId': 999,
+    },
+  ];
+
   @override
   void initState() {
     super.initState();
-    _loadCategoryData();
+    _checkAndStartGuide();
   }
 
-  Future<void> _loadCategoryData() async {
+  Future<void> _checkAndStartGuide() async {
+    final String guideId = 'category_picker_v1';
+    final bool alreadySeen = await _guideManager.hasSeenGuide(guideId);
+
+    if (alreadySeen) {
+      _switchToRealMode();
+      return;
+    }
+
+    _guideManager.runGuide(
+      showGuide: _triggerGuide,
+      onSkippedOrFinished: () {
+        _switchToRealMode();
+      },
+    );
+  }
+
+  void _triggerGuide() {
+    CategorySearchPickerGuide.show(
+      context: context,
+      searchKey: _searchKey,
+      filterChipsKey: _filterChipsKey,
+      systemCategoryKey: _systemCategoryKey,
+      personalCategoryKey: _personalCategoryKey,
+      limitButtonKey: _limitButtonKey,
+      addFabKey: _addFabKey,
+      onFinish: () async {
+        await _guideManager.markGuideAsSeen('category_picker_v1');
+        _switchToRealMode();
+      },
+      onSkipAll: () async {
+        await _guideManager.markGuideAsSeen('category_picker_v1');
+        await _guideManager.disableAllGuidesForever();
+        _switchToRealMode();
+      },
+    );
+  }
+
+  void _switchToRealMode() {
+    if (mounted) {
+      setState(() => _isDemoMode = false);
+      _loadRealCategoryData();
+    }
+  }
+
+  Future<void> _loadRealCategoryData() async {
+    if (!mounted) return;
+    setState(() => isLoading = true);
+
     final isOnline = await repository.isServerAvailable();
-    setState(() => isOffline = !isOnline);
+    if (mounted) setState(() => isOffline = !isOnline);
 
     final cached = await repository.local.getCategories();
     if (mounted && cached.isNotEmpty) {
-      setState(() => categories = cached);
+      setState(() {
+        categories = cached;
+        if (!isOnline) isLoading = false;
+      });
     }
 
     if (!isOnline) {
@@ -77,6 +155,8 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
   }
 
   void _openManageCategory({Map<String, dynamic>? existing}) {
+    if (_isDemoMode) return;
+
     final nameController = TextEditingController(text: existing?['name'] ?? "");
     final formKey = GlobalKey<FormState>();
     final colors = Theme.of(context).colorScheme;
@@ -94,7 +174,7 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                 onPressed: () async {
                   if (await repository.deleteCategory(existing['categoryId'])) {
                     widget.onChanged();
-                    await _loadCategoryData();
+                    await _loadRealCategoryData();
                     if (ctx.mounted) Navigator.pop(ctx);
                   }
                 },
@@ -130,7 +210,7 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                             );
                       if (success) {
                         widget.onChanged();
-                        await _loadCategoryData();
+                        await _loadRealCategoryData();
                         if (ctx.mounted) Navigator.pop(ctx);
                       }
                     }
@@ -143,6 +223,8 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
   }
 
   void _openLimitManage(int categoryId, dynamic existingLimit) {
+    if (_isDemoMode) return;
+
     final limitController = TextEditingController(
       text: existingLimit != null
           ? existingLimit['limitAmount'].toString()
@@ -165,7 +247,6 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
             child: const Text("ОТМЕНА"),
           ),
           ElevatedButton(
-            // БЛОКИРОВКА КНОПКИ
             onPressed: isOffline
                 ? null
                 : () async {
@@ -183,7 +264,7 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                           );
                     if (ok) {
                       widget.onChanged();
-                      await _loadCategoryData();
+                      await _loadRealCategoryData();
                       if (ctx.mounted) Navigator.pop(ctx);
                     }
                   },
@@ -198,7 +279,9 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
 
-    final filtered = categories.where((c) {
+    final currentList = _isDemoMode ? _phantomCategories : categories;
+
+    final filtered = currentList.where((c) {
       final bool isPersonal = c['isPersonal'] == true || c['userId'] != null;
       final bool matchesSearch = c['name'].toLowerCase().contains(
         searchQuery.toLowerCase(),
@@ -211,9 +294,9 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
 
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: const Text(
-        "Выбор категории",
-        style: TextStyle(fontWeight: FontWeight.bold),
+      title: Text(
+        _isDemoMode ? "Ознакомление" : "Выбор категории",
+        style: const TextStyle(fontWeight: FontWeight.bold),
       ),
       content: SizedBox(
         width: double.maxFinite,
@@ -225,12 +308,14 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                 : Column(
                     children: [
                       CustomerEdit(
+                        key: _searchKey,
                         label: "Поиск...",
                         icon: Icons.search,
                         onChanged: (val) => setState(() => searchQuery = val),
                       ),
                       const SizedBox(height: 12),
                       SingleChildScrollView(
+                        key: _filterChipsKey,
                         scrollDirection: Axis.horizontal,
                         child: _buildFilterChips(colors),
                       ),
@@ -244,14 +329,30 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                             final bool isPersonal =
                                 c['isPersonal'] == true || c['userId'] != null;
                             final int categoryId = c['categoryId'] ?? c['id'];
-                            final limit = activeLimits.firstWhere(
-                              (l) =>
-                                  l['categoryId'].toString() ==
-                                  categoryId.toString(),
-                              orElse: () => null,
-                            );
+
+                            final limit = _isDemoMode
+                                ? null
+                                : activeLimits.firstWhere(
+                                    (l) =>
+                                        l['categoryId'].toString() ==
+                                        categoryId.toString(),
+                                    orElse: () => null,
+                                  );
+
+                            Key? containerKey;
+                            if (_isDemoMode) {
+                              if (!isPersonal) {
+                                containerKey = _systemCategoryKey;
+                              }
+                              if (isPersonal) {
+                                containerKey = _personalCategoryKey;
+                              }
+                            } else {
+                              if (i == 0) containerKey = _systemCategoryKey;
+                            }
 
                             return Container(
+                              key: containerKey,
                               margin: const EdgeInsets.only(bottom: 8),
                               decoration: BoxDecoration(
                                 color: isPersonal
@@ -312,7 +413,7 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                                       IconButton(
                                         icon: Icon(
                                           Icons.edit_note,
-                                          color: isOffline
+                                          color: (isOffline && !_isDemoMode)
                                               ? Colors.grey
                                               : colors.primary,
                                           size: 22,
@@ -324,6 +425,7 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                                         },
                                       ),
                                     IconButton(
+                                      key: i == 0 ? _limitButtonKey : null,
                                       icon: Icon(
                                         limit != null
                                             ? Icons.alarm_on
@@ -335,15 +437,13 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                                               ),
                                         size: 22,
                                       ),
-                                      onPressed: () async {
-                                        if (await _isNetworkAvailable()) {
-                                          _openLimitManage(categoryId, limit);
-                                        }
-                                      },
+                                      onPressed: () =>
+                                          _openLimitManage(categoryId, limit),
                                     ),
                                   ],
                                 ),
                                 onTap: () {
+                                  if (_isDemoMode) return;
                                   widget.onSelect(categoryId, c['name']);
                                   Navigator.pop(context);
                                 },
@@ -359,12 +459,11 @@ class _CategorySearchPickerState extends State<CategorySearchPicker> {
                 bottom: 0,
                 right: 0,
                 child: FloatingActionButton(
-                  backgroundColor: isOffline ? Colors.grey : colors.primary,
-                  onPressed: () async {
-                    if (await _isNetworkAvailable()) {
-                      _openManageCategory();
-                    }
-                  },
+                  key: _addFabKey,
+                  backgroundColor: (isOffline && !_isDemoMode)
+                      ? Colors.grey
+                      : colors.primary,
+                  onPressed: () => _openManageCategory(),
                   child: const Icon(Icons.add),
                 ),
               ),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:my_app/CustomerWidgets/AppFloatingButton.dart';
+import 'package:my_app/Pages/Guide/guide_manager.dart';
+import 'package:my_app/Pages/Guide/transactions_page_guide.dart';
 import 'package:my_app/Pages/Transactions/components/BillStatisticsPage.dart';
 import 'package:my_app/Pages/Transactions/components/filter_screen.dart';
 import 'package:my_app/Pages/Transactions/components/transaction_filter_service.dart';
@@ -16,12 +18,14 @@ class TransactionsPage extends StatefulWidget {
   final int billId;
   final String billName;
   final String currencySymbol;
+  final bool startGuide;
 
   const TransactionsPage({
     super.key,
     required this.billId,
     required this.billName,
     required this.currencySymbol,
+    this.startGuide = true,
   });
 
   @override
@@ -32,6 +36,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
   late final TransactionRepository repository;
   final LocalStorageService localStorage = LocalStorageService();
   final ScrollController _scrollController = ScrollController();
+  final GuideManager _guideManager = GuideManager();
 
   bool get _isFilterActive => !_currentFilters.isEmpty;
   List<Map<String, dynamic>> allTransactions = [];
@@ -48,6 +53,15 @@ class _TransactionsPageState extends State<TransactionsPage> {
   TransactionFilters _currentFilters = TransactionFilters();
   bool isOffline = false;
 
+  final GlobalKey _appBarTitleKey = GlobalKey();
+  final GlobalKey _firstTxKey = GlobalKey();
+  final GlobalKey _syncIconKey = GlobalKey();
+  final GlobalKey _filterKey = GlobalKey();
+  final GlobalKey _fabKey = GlobalKey();
+  final GlobalKey _statsIconKey = GlobalKey();
+
+  bool _hasPhantomTransaction = false;
+
   @override
   void initState() {
     super.initState();
@@ -55,8 +69,72 @@ class _TransactionsPageState extends State<TransactionsPage> {
       UserRemoteDataSource(dio: Dioclient.instance),
       localStorage,
     );
-    _initialLoad();
+
+    _initialLoad().then((_) {
+      if (widget.startGuide) {
+        _checkAndStartGuide();
+      }
+    });
     _scrollController.addListener(_onScroll);
+  }
+
+  Future<void> _checkAndStartGuide() async {
+    final String guideId = 'transactions_page_v1';
+    final bool alreadySeen = await _guideManager.hasSeenGuide(guideId);
+    if (!mounted || alreadySeen || !widget.startGuide || isLoading) return;
+
+    _guideManager.runGuide(
+      showGuide: _triggerGuide,
+      onSkippedOrFinished: () {
+        _guideManager.markGuideAsSeen(guideId);
+      },
+    );
+  }
+
+  void _triggerGuide() {
+    setState(() {
+      _hasPhantomTransaction = true;
+      allTransactions = [
+        {
+          'idTransaction': -1,
+          'description': 'Покупка продуктов (Пример)',
+          'categoryName': 'Продукты',
+          'sum': -450.00,
+          'transactionDate': DateTime.now().toIso8601String().split('T')[0],
+          'isSynced': false,
+          'localUpdated': true,
+        },
+      ];
+    });
+
+    TransactionsPageGuide.show(
+      context: context,
+      appBarTitleKey: _appBarTitleKey,
+      statsIconKey: _statsIconKey,
+      firstTxKey: _firstTxKey,
+      syncIconKey: _syncIconKey,
+      filterKey: _filterKey,
+      fabKey: _fabKey,
+      onFinish: () async {
+        await _guideManager.markGuideAsSeen('transactions_page_v1');
+        if (mounted) {
+          setState(() {
+            _hasPhantomTransaction = false;
+            _initialLoad();
+          });
+        }
+      },
+      onSkipAll: () async {
+        await _guideManager.disableAllGuidesForever();
+        await _guideManager.markGuideAsSeen('transactions_page_v1');
+        if (mounted) {
+          setState(() {
+            _hasPhantomTransaction = false;
+            _initialLoad();
+          });
+        }
+      },
+    );
   }
 
   @override
@@ -76,6 +154,8 @@ class _TransactionsPageState extends State<TransactionsPage> {
 
   Future<void> _initialLoad() async {
     if (!mounted) return;
+    if (_hasPhantomTransaction) return;
+
     setState(() {
       isLoading = true;
       currentPage = 0;
@@ -132,9 +212,11 @@ class _TransactionsPageState extends State<TransactionsPage> {
         final int end = sortedCachedTx.length > pageSize
             ? pageSize
             : sortedCachedTx.length;
-        allTransactions = List<Map<String, dynamic>>.from(
-          sortedCachedTx.sublist(0, end),
-        );
+        if (!_hasPhantomTransaction) {
+          allTransactions = List<Map<String, dynamic>>.from(
+            sortedCachedTx.sublist(0, end),
+          );
+        }
         categories = localCategories;
         currentBillBalance = (currentWallet['currentBalance'] as num? ?? 0.0)
             .toDouble();
@@ -156,12 +238,9 @@ class _TransactionsPageState extends State<TransactionsPage> {
         localDataSource: localStorage,
       );
       await repository.syncOfflineTransactions();
-
       await walletRepo.syncOfflineWallets();
     } catch (e) {
-      debugPrint(
-        "UI [SYNC] ERROR: Ошибка при последовательной очистке оффлайн-очереди: $e",
-      );
+      debugPrint("UI [SYNC] ERROR: Ошибка при очистке оффлайн-очереди: $e");
     }
 
     try {
@@ -195,7 +274,9 @@ class _TransactionsPageState extends State<TransactionsPage> {
 
       if (!mounted) return;
       setState(() {
-        allTransactions = List<Map<String, dynamic>>.from(txResult);
+        if (!_hasPhantomTransaction) {
+          allTransactions = List<Map<String, dynamic>>.from(txResult);
+        }
         categories = results[1].isNotEmpty
             ? List<Map<String, dynamic>>.from(results[1])
             : categories;
@@ -216,7 +297,9 @@ class _TransactionsPageState extends State<TransactionsPage> {
   }
 
   Future<void> _loadMoreTransactions() async {
-    if (isLoadMoreLoading || !hasMore || isOffline) return;
+    if (isLoadMoreLoading || !hasMore || isOffline || _hasPhantomTransaction) {
+      return;
+    }
 
     setState(() => isLoadMoreLoading = true);
 
@@ -270,6 +353,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
     return Scaffold(
       appBar: AppBar(
         title: Column(
+          key: _appBarTitleKey,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -309,6 +393,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.analytics_outlined),
+            key: _statsIconKey,
             tooltip: "Статистика",
             onPressed: isOffline
                 ? null
@@ -326,6 +411,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
                   },
           ),
           IconButton(
+            key: _filterKey,
             onPressed: _openFilters,
             icon: Badge(
               isLabelVisible: _isFilterActive,
@@ -339,7 +425,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
           : Column(
               children: [
                 _buildActiveFiltersInfo(),
-                _buildStatsHeader(stats),
+                Container(child: _buildStatsHeader(stats)),
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: _refreshData,
@@ -373,7 +459,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
                                     _buildDateHeader(
                                       t['transactionDate'] ?? '',
                                     ),
-                                  _buildTransactionTile(t),
+                                  _buildTransactionTile(t, index),
                                 ],
                               );
                             },
@@ -383,6 +469,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
               ],
             ),
       floatingActionButton: AppFloatingButton(
+        key: _fabKey,
         onPressed: () {
           _openTransactionForm();
         },
@@ -444,7 +531,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
     }
   }
 
-  Widget _buildTransactionTile(Map<String, dynamic> t) {
+  Widget _buildTransactionTile(Map<String, dynamic> t, int index) {
     final num sumVal = t['sum'] ?? t['amount'] ?? 0;
     final isExpense = sumVal < 0;
 
@@ -452,6 +539,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
         (t['localUpdated'] == true) || (t['isSynced'] == false);
 
     return Card(
+      key: index == 0 ? _firstTxKey : null,
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -489,9 +577,10 @@ class _TransactionsPageState extends State<TransactionsPage> {
             ),
             if (isLocalChanged) ...[
               const SizedBox(width: 6),
-              const Tooltip(
+              Tooltip(
                 message: "Изменено локально (ожидает синхронизации)",
                 child: Icon(
+                  key: index == 0 ? _syncIconKey : null,
                   Icons.access_time_rounded,
                   size: 16,
                   color: Colors.orange,
@@ -509,6 +598,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
           ),
         ),
         onTap: () {
+          if (t['idTransaction'] == -1) return;
           _openTransactionForm(existing: t);
         },
       ),
@@ -534,7 +624,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
               existing?['transactionId'];
           if (txId == null) {
             debugPrint(
-              "UI Error: Не удалось найти ID транзакции для удаления в переданном объекте.",
+              "UI Error: Не удалось найти ID транзакции для удаления.",
             );
             return;
           }
@@ -593,9 +683,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
     Map<String, dynamic>? existing,
   ) async {
     final num? rawAmount = data['amount'] ?? data['sum'];
-    if (rawAmount == null) {
-      return;
-    }
+    if (rawAmount == null) return;
 
     final double amount = rawAmount.toDouble();
     final int? categoryId = data['categoryId'];
@@ -646,16 +734,11 @@ class _TransactionsPageState extends State<TransactionsPage> {
               ) ??
               false;
 
-          if (!confirm) {
-            debugPrint(
-              "UI: Пользователь отменил сохранение из-за превышения лимита.",
-            );
-            return;
-          }
+          if (!confirm) return;
         }
       } catch (e) {
         debugPrint(
-          "UI Warning: Не удалось проверить лимиты через сервер: $e. Продолжаем сохранение.",
+          "UI Warning: Не удалось проверить лимиты: $e. Продолжаем сохранение.",
         );
       }
     }
@@ -673,9 +756,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
       await _initialLoad();
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      debugPrint(
-        "UI Error: Ошибка при сохранении транзакции через репозиторий: $e",
-      );
+      debugPrint("UI Error: Ошибка при сохранении транзакции: $e");
     }
   }
 

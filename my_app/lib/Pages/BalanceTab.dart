@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:my_app/CustomerWidgets/AppFloatingButton.dart';
 import 'package:my_app/CustomerWidgets/WalletFormSheet.dart';
+import 'package:my_app/Pages/Guide/balance_page_guide.dart';
+import 'package:my_app/Pages/Guide/guide_manager.dart';
 import 'package:my_app/Pages/Transactions/TransactionsPage.dart';
 import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/data/сurrency.dart';
@@ -10,13 +12,15 @@ import 'package:my_app/repositories/transaction_repository.dart';
 import 'package:my_app/repositories/wallet_repository.dart';
 
 class BalanceTab extends StatefulWidget {
-  const BalanceTab({super.key});
+  final bool startGuide;
+  const BalanceTab({super.key, this.startGuide = false});
 
   @override
   State<BalanceTab> createState() => _BalanceTabState();
 }
 
 class _BalanceTabState extends State<BalanceTab> {
+  final String _guideId = 'balance_page_v1';
   late final WalletRepository walletRepository;
   late final TransactionRepository transactionRepository;
   final LocalStorageService localStorage = LocalStorageService();
@@ -24,6 +28,13 @@ class _BalanceTabState extends State<BalanceTab> {
   List<dynamic> wallets = [];
   List<Currency> currencies = [];
   bool isLoading = true;
+  bool _guideWasShown = false;
+  bool _hasPhantomWallet = false;
+
+  final GlobalKey _firstWalletCardKey = GlobalKey();
+  final GlobalKey _fabKey = GlobalKey();
+  GlobalKey? _firstUnsyncedIconKey;
+  final GuideManager _guideManager = GuideManager();
 
   @override
   void initState() {
@@ -37,7 +48,79 @@ class _BalanceTabState extends State<BalanceTab> {
 
     transactionRepository = TransactionRepository(remoteSource, localStorage);
 
-    _refreshData();
+    _refreshData().then((_) {
+      _checkAndStartGuide();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant BalanceTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.startGuide && !oldWidget.startGuide) {
+      _checkAndStartGuide();
+    }
+  }
+
+  Future<void> _checkAndStartGuide() async {
+    final bool alreadySeen = await _guideManager.hasSeenGuide(_guideId);
+    if (!mounted ||
+        _guideWasShown ||
+        alreadySeen ||
+        !widget.startGuide ||
+        isLoading) {
+      return;
+    }
+
+    _guideManager.runGuide(
+      showGuide: () {
+        setState(() {
+          _guideWasShown = true;
+          if (wallets.isEmpty) {
+            _hasPhantomWallet = true;
+            wallets = [
+              {
+                'id': -1,
+                'name': 'Пример счёта',
+                'currentBalance': 1500.00,
+                'currencyCode': 'USD',
+                'isSynced': false,
+              },
+            ];
+          }
+        });
+
+        BalancePageGuide.show(
+          context: context,
+          firstWalletKey: _firstWalletCardKey,
+          syncIconKey: _firstUnsyncedIconKey,
+          fabKey: _fabKey,
+          onFinish: () async {
+            await _guideManager.markGuideAsSeen(_guideId);
+
+            if (mounted) {
+              setState(() {
+                _hasPhantomWallet = false;
+                _refreshData();
+              });
+            }
+          },
+          onSkipAll: () async {
+            await _guideManager.markGuideAsSeen(_guideId);
+            await _guideManager.disableAllGuidesForever();
+
+            if (mounted) {
+              setState(() {
+                _hasPhantomWallet = false;
+                _refreshData();
+              });
+            }
+          },
+        );
+      },
+      onSkippedOrFinished: () {
+        _guideManager.markGuideAsSeen(_guideId);
+      },
+    );
   }
 
   int? _getWalletId(Map<String, dynamic>? wallet) {
@@ -48,6 +131,7 @@ class _BalanceTabState extends State<BalanceTab> {
 
   Future<void> _refreshData() async {
     if (!mounted) return;
+    if (_hasPhantomWallet) return;
     setState(() => isLoading = true);
 
     try {
@@ -66,12 +150,7 @@ class _BalanceTabState extends State<BalanceTab> {
 
       if (isOnline) {
         await transactionRepository.syncOfflineTransactions();
-
         await walletRepository.syncOfflineWallets();
-      } else {
-        debugPrint(
-          "BALANCE_TAB: Сервер недоступен. Работаем в оффлайн-режиме.",
-        );
       }
 
       final w = await walletRepository.getWallets();
@@ -79,13 +158,15 @@ class _BalanceTabState extends State<BalanceTab> {
 
       if (mounted) {
         setState(() {
-          wallets = w;
+          if (!_hasPhantomWallet) {
+            wallets = w;
+          }
           currencies = c;
           isLoading = false;
         });
       }
     } catch (e) {
-      debugPrint("Ошибка при полном обновлении данных BalanceTab: $e");
+      debugPrint("Ошибка обновления данных: $e");
       if (mounted) setState(() => isLoading = false);
     }
   }
@@ -99,7 +180,7 @@ class _BalanceTabState extends State<BalanceTab> {
             ),
             title: const Text('Удаление счета'),
             content: Text(
-              'Удалить счет "$walletName"? Это также удалит все связанные транзакции и платежи.',
+              'Удалить счет "$walletName"? Это также удалит все связанные транзакции.',
             ),
             actions: [
               TextButton(
@@ -126,6 +207,8 @@ class _BalanceTabState extends State<BalanceTab> {
   }
 
   void _openWalletForm({Map<String, dynamic>? existingWallet}) {
+    if (existingWallet != null && existingWallet['id'] == -1) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -136,38 +219,22 @@ class _BalanceTabState extends State<BalanceTab> {
         onDelete: () async {
           final id = _getWalletId(existingWallet);
           if (id == null) return;
-
           bool confirm = await _showDeleteConfirmDialog(
             existingWallet!['name'] ?? '',
           );
-
           if (confirm && bottomSheetContext.mounted) {
             Navigator.pop(bottomSheetContext);
-
-            final success = await walletRepository.deleteWallet(id);
-            if (success) {
-              _refreshData();
-            } else if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Не удалось удалить счет.")),
-              );
-            }
+            if (await walletRepository.deleteWallet(id)) _refreshData();
           }
         },
         onSave: (data) async {
           final id = _getWalletId(existingWallet);
-
           bool ok = (id == null)
               ? await walletRepository.addWallet(data)
               : await walletRepository.updateWallet(id, data);
-
           if (ok) {
             _refreshData();
             if (bottomSheetContext.mounted) Navigator.pop(bottomSheetContext);
-          } else if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Ошибка при сохранении данных")),
-            );
           }
         },
       ),
@@ -178,6 +245,8 @@ class _BalanceTabState extends State<BalanceTab> {
   Widget build(BuildContext context) {
     if (isLoading) return const Center(child: CircularProgressIndicator());
     final colorScheme = Theme.of(context).colorScheme;
+
+    _firstUnsyncedIconKey = null;
 
     return Scaffold(
       body: RefreshIndicator(
@@ -203,7 +272,6 @@ class _BalanceTabState extends State<BalanceTab> {
                       name: 'US Dollar',
                       symbol: '\$',
                     ),
-
                     Currency(
                       idCurrencies: 2,
                       code: 'EUR',
@@ -226,7 +294,6 @@ class _BalanceTabState extends State<BalanceTab> {
 
                   final List<Currency> effectiveCurrencies =
                       currencies.isNotEmpty ? currencies : fallbackCurrencies;
-
                   final String symbol = effectiveCurrencies
                       .firstWhere(
                         (c) => c.code == code,
@@ -238,12 +305,19 @@ class _BalanceTabState extends State<BalanceTab> {
                         ),
                       )
                       .symbol;
-
                   final Color balanceColor = balanceValue == 0
                       ? colorScheme.onSurface
                       : (balanceValue > 0 ? Colors.green : Colors.red);
 
+                  final bool isNotSynced = wallet['isSynced'] == false;
+                  GlobalKey? itemIconKey;
+                  if (isNotSynced && _firstUnsyncedIconKey == null) {
+                    _firstUnsyncedIconKey = GlobalKey();
+                    itemIconKey = _firstUnsyncedIconKey;
+                  }
+
                   return Card(
+                    key: index == 0 ? _firstWalletCardKey : null,
                     elevation: 0,
                     margin: const EdgeInsets.only(bottom: 10),
                     shape: RoundedRectangleBorder(
@@ -260,6 +334,7 @@ class _BalanceTabState extends State<BalanceTab> {
                         vertical: 4,
                       ),
                       onTap: () async {
+                        if (billId == -1) return;
                         if (billId != null) {
                           await Navigator.push(
                             context,
@@ -294,9 +369,10 @@ class _BalanceTabState extends State<BalanceTab> {
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          if (wallet['isSynced'] == false) ...[
+                          if (isNotSynced) ...[
                             const SizedBox(width: 6),
-                            const Icon(
+                            Icon(
+                              key: itemIconKey,
                               Icons.cloud_off,
                               size: 16,
                               color: Colors.orange,
@@ -332,6 +408,7 @@ class _BalanceTabState extends State<BalanceTab> {
               ),
       ),
       floatingActionButton: AppFloatingButton(
+        key: _fabKey,
         onPressed: () => _openWalletForm(),
       ),
     );

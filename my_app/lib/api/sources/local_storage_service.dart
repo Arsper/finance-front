@@ -6,6 +6,9 @@ class LocalStorageService {
   static const String _walletsKey = 'offline_wallets';
   static const String _categoriesKey = 'cached_categories';
 
+  Future<SharedPreferences> get sharedPreferences =>
+      SharedPreferences.getInstance();
+
   Future<void> saveWallets(List<dynamic> wallets) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_walletsKey, jsonEncode(wallets));

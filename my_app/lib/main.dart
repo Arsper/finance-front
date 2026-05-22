@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:my_app/Pages/Guide/guide_manager.dart';
 import 'package:my_app/Pages/home.dart';
 import 'package:my_app/Pages/login.dart';
 import 'package:my_app/Pages/Register/register.dart';
@@ -7,7 +8,9 @@ import 'package:my_app/helpers/AuthStorageService.dart';
 import 'package:my_app/helpers/ThemeStorageService.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
+GuideManager _guideManager = GuideManager();
 
 const Color primaryAccent = Color(0xFF8B5CF6);
 const Color onPrimaryColor = Colors.white;
@@ -52,6 +55,7 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     _themeMode = _getThemeModeFromString(widget.savedTheme);
+    //_guideManager.resetAllGuides();
   }
 
   ThemeMode _getThemeModeFromString(String themeString) {

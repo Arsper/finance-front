@@ -4,6 +4,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:my_app/Pages/BalanceTab.dart';
 import 'package:my_app/Pages/ExchangeRatesPage.dart';
 import 'package:my_app/Pages/FinancialGoals/FinancialCalculationPage.dart';
+import 'package:my_app/Pages/Guide/guide_manager.dart';
+import 'package:my_app/Pages/Guide/home_page_guide.dart';
 import 'package:my_app/Pages/RecurringPaymen/RecurringPaymentsPage.dart';
 import 'package:my_app/helpers/OverlayToastService.dart';
 import 'package:my_app/main.dart';
@@ -22,13 +24,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   bool _isOnline = true;
   bool _isServerAlive = true;
+  final GuideManager _guideManager = GuideManager();
+  bool _isMainGuideFinished = false;
+  final String _homeGuideId = 'home_page_v1';
 
   late final UserRemoteDataSource _dataSource;
   StreamSubscription<ConnectivityResult>? _connectivitySubscription;
   Timer? _healthCheckTimer;
 
+  final GlobalKey _networkStatusKey = GlobalKey();
+  final GlobalKey _themeMenuKey = GlobalKey();
+  final GlobalKey _logoutKey = GlobalKey();
+  final GlobalKey _bottomNavKey = GlobalKey();
+
+  // Превращаем геттер в метод или передаем динамический стейт гайда во вкладку
   List<Widget> get _widgetOptions => <Widget>[
-    const BalanceTab(),
+    BalanceTab(startGuide: _isMainGuideFinished), // Передаем состояние триггера
     const RecurringPaymentsPage(),
     const FinancialCalculationPage(),
     const ExchangeRatesPage(),
@@ -44,6 +55,49 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _dataSource = UserRemoteDataSource(dio: Dioclient.instance);
     _initConnectivity();
     _startHealthCheckTimer();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndStartHomeGuide();
+    });
+  }
+
+  Future<void> _checkAndStartHomeGuide() async {
+    final bool alreadySeen = await _guideManager.hasSeenGuide(_homeGuideId);
+
+    if (alreadySeen) {
+      setState(() => _isMainGuideFinished = true);
+      return;
+    }
+
+    _guideManager.runGuide(
+      showGuide: () {
+        if (!mounted) return;
+        _startGuide();
+      },
+      onSkippedOrFinished: () {
+        if (mounted) {
+          setState(() => _isMainGuideFinished = true);
+        }
+      },
+    );
+  }
+
+  void _startGuide() {
+    HomePageGuide.show(
+      context: context,
+      networkStatusKey: _networkStatusKey,
+      themeMenuKey: _themeMenuKey,
+      logoutKey: _logoutKey,
+      bottomNavKey: _bottomNavKey,
+      onFinish: () async {
+        await _guideManager.markGuideAsSeen(_homeGuideId);
+        if (mounted) setState(() => _isMainGuideFinished = true);
+      },
+      onSkipAll: () async {
+        await _guideManager.disableAllGuidesForever();
+        if (mounted) setState(() => _isMainGuideFinished = true);
+      },
+    );
   }
 
   void _startHealthCheckTimer() {
@@ -189,8 +243,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('Умный кошелёк'),
         centerTitle: true,
+        leading: Center(
+          key: _networkStatusKey,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 12.0),
+            child: Icon(
+              _isApiAvailable ? Icons.gpp_good : Icons.gpp_bad,
+              color: _isApiAvailable ? Colors.green : Colors.red,
+              size: 26,
+            ),
+          ),
+        ),
         actions: [
           PopupMenuButton<ThemeMode>(
+            key: _themeMenuKey,
             icon: const Icon(Icons.brightness_6),
             tooltip: 'Сменить тему',
             onSelected: (ThemeMode mode) {
@@ -221,6 +287,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ],
           ),
           IconButton(
+            key: _logoutKey,
             tooltip: 'Выйти',
             icon: const Icon(Icons.logout),
             onPressed: _logout,
@@ -228,44 +295,47 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ],
       ),
       body: _widgetOptions[_selectedIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        items: <BottomNavigationBarItem>[
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            activeIcon: Icon(Icons.account_balance_wallet),
-            label: 'Баланс',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(
-              Icons.calendar_month_outlined,
-              color: _isApiAvailable ? null : Colors.grey.shade400,
+      bottomNavigationBar: KeyedSubtree(
+        key: _bottomNavKey,
+        child: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
+          items: <BottomNavigationBarItem>[
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.account_balance_wallet_outlined),
+              activeIcon: Icon(Icons.account_balance_wallet),
+              label: 'Баланс',
             ),
-            activeIcon: const Icon(Icons.calendar_month),
-            label: 'Автоплатеж',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(
-              Icons.calculate_outlined,
-              color: _isApiAvailable ? null : Colors.grey.shade400,
+            BottomNavigationBarItem(
+              icon: Icon(
+                Icons.calendar_month_outlined,
+                color: _isApiAvailable ? null : Colors.grey.shade400,
+              ),
+              activeIcon: const Icon(Icons.calendar_month),
+              label: 'Автоплатеж',
             ),
-            activeIcon: const Icon(Icons.calculate),
-            label: 'Цели',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(
-              Icons.currency_exchange,
-              color: _isApiAvailable ? null : Colors.grey.shade400,
+            BottomNavigationBarItem(
+              icon: Icon(
+                Icons.calculate_outlined,
+                color: _isApiAvailable ? null : Colors.grey.shade400,
+              ),
+              activeIcon: const Icon(Icons.calculate),
+              label: 'Цели',
             ),
-            label: 'Курсы',
-          ),
-        ],
-        currentIndex: _selectedIndex,
-        selectedItemColor: Colors.deepPurple,
-        unselectedItemColor: _isApiAvailable
-            ? Colors.grey
-            : Colors.grey.shade400,
-        onTap: _onItemTapped,
+            BottomNavigationBarItem(
+              icon: Icon(
+                Icons.currency_exchange,
+                color: _isApiAvailable ? null : Colors.grey.shade400,
+              ),
+              label: 'Курсы',
+            ),
+          ],
+          currentIndex: _selectedIndex,
+          selectedItemColor: Colors.deepPurple,
+          unselectedItemColor: _isApiAvailable
+              ? Colors.grey
+              : Colors.grey.shade400,
+          onTap: _onItemTapped,
+        ),
       ),
     );
   }
