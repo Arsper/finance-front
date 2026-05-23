@@ -14,6 +14,7 @@ class TransactionsPageGuide {
     required VoidCallback onSkipAll,
   }) {
     List<TargetFocus> targets = [];
+    final screenSize = MediaQuery.of(context).size;
 
     Widget buildGuideCard({required String title, required String body}) {
       return Padding(
@@ -84,8 +85,10 @@ class TransactionsPageGuide {
         paddingFocus: 8,
         contents: [
           TargetContent(
-            align: ContentAlign.bottom,
-            padding: const EdgeInsets.only(top: 24),
+            align: ContentAlign.custom,
+            customPosition: CustomTargetContentPosition(
+              top: screenSize.height * 0.15,
+            ),
             builder: (context, controller) => buildGuideCard(
               title: "Текущий счет и остаток",
               body:
@@ -103,7 +106,10 @@ class TransactionsPageGuide {
         keyTarget: statsIconKey,
         contents: [
           TargetContent(
-            align: ContentAlign.bottom,
+            align: ContentAlign.custom,
+            customPosition: CustomTargetContentPosition(
+              top: screenSize.height * 0.1,
+            ),
             builder: (context, controller) => buildGuideCard(
               title: "Аналитика расходов",
               body:
@@ -122,8 +128,10 @@ class TransactionsPageGuide {
         paddingFocus: 4,
         contents: [
           TargetContent(
-            align: ContentAlign.bottom,
-            padding: const EdgeInsets.only(top: 32),
+            align: ContentAlign.custom,
+            customPosition: CustomTargetContentPosition(
+              top: screenSize.height * 0.1,
+            ),
             builder: (context, controller) => buildGuideCard(
               title: "Поиск и фильтрация",
               body:
@@ -142,8 +150,10 @@ class TransactionsPageGuide {
         paddingFocus: 6,
         contents: [
           TargetContent(
-            align: ContentAlign.bottom,
-            padding: const EdgeInsets.only(top: 32),
+            align: ContentAlign.custom,
+            customPosition: CustomTargetContentPosition(
+              top: screenSize.height * 0.67,
+            ),
             builder: (context, controller) => buildGuideCard(
               title: "Карточка операции",
               body:
@@ -162,8 +172,10 @@ class TransactionsPageGuide {
         paddingFocus: 12,
         contents: [
           TargetContent(
-            align: ContentAlign.bottom,
-            padding: const EdgeInsets.only(top: 32),
+            align: ContentAlign.custom,
+            customPosition: CustomTargetContentPosition(
+              top: screenSize.height * 0.3,
+            ),
             builder: (context, controller) => buildGuideCard(
               title: "Локальные транзакции",
               body:
@@ -183,7 +195,7 @@ class TransactionsPageGuide {
         contents: [
           TargetContent(
             align: ContentAlign.top,
-            padding: const EdgeInsets.only(bottom: 32),
+            padding: const EdgeInsets.only(bottom: 24),
             builder: (context, controller) => buildGuideCard(
               title: "Новая операция",
               body:
@@ -238,6 +250,9 @@ class TransactionsPageGuide {
     );
 
     Future.delayed(const Duration(milliseconds: 150), () {
+      if (!context.mounted) {
+        return;
+      }
       tutorial.show(context: context);
     });
   }

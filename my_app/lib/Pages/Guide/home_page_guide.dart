@@ -3,6 +3,7 @@ import 'package:tutorial_coach_mark/tutorial_coach_mark.dart';
 
 class HomePageGuide {
   static List<TargetFocus> _createTargets({
+    required BuildContext context,
     required GlobalKey networkStatusKey,
     required GlobalKey themeMenuKey,
     required GlobalKey logoutKey,
@@ -11,6 +12,7 @@ class HomePageGuide {
     required VoidCallback onSkipAll,
   }) {
     List<TargetFocus> targets = [];
+    final screenSize = MediaQuery.of(context).size;
 
     Widget buildGuideCard({
       required String title,
@@ -50,6 +52,7 @@ class HomePageGuide {
                     "НЕ ПОКАЗЫВАТЬ БОЛЬШЕ",
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.5),
+                      fontWeight: FontWeight.w500,
                       fontSize: 11,
                     ),
                   ),
@@ -60,8 +63,17 @@ class HomePageGuide {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.orangeAccent,
                     foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
-                  child: Text("ДАЛЕЕ"),
+                  child: Text(
+                    isLast ? "ЗАВЕРШИТЬ" : "ДАЛЕЕ",
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -75,9 +87,13 @@ class HomePageGuide {
       TargetFocus(
         identify: "network_status",
         keyTarget: networkStatusKey,
+        paddingFocus: 8,
         contents: [
           TargetContent(
-            align: ContentAlign.bottom,
+            align: ContentAlign.custom,
+            customPosition: CustomTargetContentPosition(
+              top: screenSize.height * 0.10,
+            ),
             builder: (context, controller) => buildGuideCard(
               title: "Мониторинг соединения",
               body:
@@ -93,9 +109,13 @@ class HomePageGuide {
       TargetFocus(
         identify: "theme_menu",
         keyTarget: themeMenuKey,
+        paddingFocus: 8,
         contents: [
           TargetContent(
-            align: ContentAlign.bottom,
+            align: ContentAlign.custom,
+            customPosition: CustomTargetContentPosition(
+              top: screenSize.height * 0.10,
+            ),
             builder: (context, controller) => buildGuideCard(
               title: "Кастомизация",
               body:
@@ -111,9 +131,13 @@ class HomePageGuide {
       TargetFocus(
         identify: "logout_button",
         keyTarget: logoutKey,
+        paddingFocus: 8,
         contents: [
           TargetContent(
-            align: ContentAlign.bottom,
+            align: ContentAlign.custom,
+            customPosition: CustomTargetContentPosition(
+              top: screenSize.height * 0.10,
+            ),
             builder: (context, controller) => buildGuideCard(
               title: "Выход из системы",
               body: "Безопасное завершение сессии и возврат на экран входа.",
@@ -128,17 +152,14 @@ class HomePageGuide {
       TargetFocus(
         identify: "bottom_navigation",
         keyTarget: bottomNavKey,
+        paddingFocus: 8,
         contents: [
           TargetContent(
             align: ContentAlign.custom,
             customPosition: CustomTargetContentPosition(
               top:
-                  MediaQueryData.fromView(
-                    WidgetsBinding.instance.platformDispatcher.views.first,
-                  ).padding.top +
-                  400,
-              left: 20,
-              right: 20,
+                  screenSize.height *
+                  0.3,
             ),
             builder: (context, controller) => buildGuideCard(
               title: "Навигация",
@@ -166,6 +187,7 @@ class HomePageGuide {
     late TutorialCoachMark tutorial;
 
     final targets = _createTargets(
+      context: context,
       networkStatusKey: networkStatusKey,
       themeMenuKey: themeMenuKey,
       logoutKey: logoutKey,
@@ -190,6 +212,9 @@ class HomePageGuide {
       },
     );
 
-    tutorial.show(context: context);
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (!context.mounted) return;
+      tutorial.show(context: context);
+    });
   }
 }

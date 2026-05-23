@@ -97,7 +97,7 @@ class CategorySearchPickerGuide {
           TargetContent(
             align: ContentAlign.custom,
             customPosition: CustomTargetContentPosition(
-              top: screenSize.height * 0.55,
+              top: screenSize.height * 0.45,
             ),
             builder: (context, controller) => buildGuideCard(
               title: "Быстрый поиск",
@@ -119,7 +119,7 @@ class CategorySearchPickerGuide {
           TargetContent(
             align: ContentAlign.custom,
             customPosition: CustomTargetContentPosition(
-              top: screenSize.height * 0.55,
+              top: screenSize.height * 0.5,
             ),
             builder: (context, controller) => buildGuideCard(
               title: "Тип категорий",
@@ -163,7 +163,7 @@ class CategorySearchPickerGuide {
           TargetContent(
             align: ContentAlign.custom,
             customPosition: CustomTargetContentPosition(
-              top: screenSize.height * 0.65,
+              top: screenSize.height * 0.73,
             ),
             builder: (context, controller) => buildGuideCard(
               title: "Личные категории",
@@ -185,7 +185,7 @@ class CategorySearchPickerGuide {
           TargetContent(
             align: ContentAlign.custom,
             customPosition: CustomTargetContentPosition(
-              top: screenSize.height * 0.65,
+              top: screenSize.height * 0.4,
             ),
             builder: (context, controller) => buildGuideCard(
               title: "Бюджет и лимиты",

@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:tutorial_coach_mark/tutorial_coach_mark.dart';
 
-class BalancePageGuide {
+class FinancialGoalsGuide {
   static List<TargetFocus> _createTargets({
     required BuildContext context,
-    required GlobalKey firstWalletKey,
-    required GlobalKey? syncIconKey,
-    required GlobalKey fabKey,
+    GlobalKey? tabBarKey,
+    GlobalKey? calcButtonKey,
+    GlobalKey? createGoalButtonKey,
+    GlobalKey? targetKey,
     required VoidCallback onSkipCurrent,
     required VoidCallback onSkipAll,
   }) {
-    List<TargetFocus> targets = [];
     final screenSize = MediaQuery.of(context).size;
 
     Widget buildGuideCard({
@@ -81,45 +81,86 @@ class BalancePageGuide {
       );
     }
 
-    // 1. Первый кошелек
-    targets.add(
-      TargetFocus(
-        identify: "first_wallet_item",
-        keyTarget: firstWalletKey,
-        paddingFocus: 6,
-        contents: [
-          TargetContent(
-            align: ContentAlign.custom,
-            customPosition: CustomTargetContentPosition(
-              top: screenSize.height * 0.5,
-            ),
-            builder: (context, controller) => buildGuideCard(
-              title: "Ваш счет (кошелёк)",
-              body:
-                  "Здесь вы видите название счета, баланс и индикатор статуса. Нажмите на карточку для просмотра истории.",
-            ),
-          ),
-        ],
-      ),
-    );
+    final List<Map<String, dynamic>> targetConfigs = [];
 
-    // 2. Иконка синхронизации (если есть)
-    if (syncIconKey != null) {
+    // 1. Вкладки
+    if (tabBarKey != null && tabBarKey.currentContext != null) {
+      targetConfigs.add({
+        "identify": "tabs",
+        "keyTarget": tabBarKey,
+        "align": ContentAlign.custom,
+        "customPosition": CustomTargetContentPosition(
+          top: screenSize.height * 0.5,
+        ),
+        "paddingFocus": 8.0,
+        "title": "Навигация",
+        "body": "Переключайтесь между режимом расчета и списком ваших целей.",
+      });
+    }
+
+    // 2. Карточка цели
+    if (targetKey != null && targetKey.currentContext != null) {
+      targetConfigs.add({
+        "identify": "goal_item",
+        "keyTarget": targetKey,
+        "align": ContentAlign.custom,
+        "customPosition": CustomTargetContentPosition(
+          top: screenSize.height * 0.75,
+        ),
+        "title": "Управление целью",
+        "body": "Нажмите на карточку, чтобы изменить или пополнить вашу цель.",
+      });
+    }
+
+    // 3. Кнопка расчета
+    if (calcButtonKey != null && calcButtonKey.currentContext != null) {
+      targetConfigs.add({
+        "identify": "calc_button",
+        "keyTarget": calcButtonKey,
+        "align": ContentAlign.custom,
+        "customPosition": CustomTargetContentPosition(
+          top: screenSize.height * 0.1,
+        ),
+        "paddingFocus": 4.0,
+        "title": "Расчет",
+        "body": "Введите параметры и нажмите здесь, чтобы рассчитать ваш план.",
+      });
+    }
+
+    // 4. Кнопка создания новой цели
+    if (createGoalButtonKey != null &&
+        createGoalButtonKey.currentContext != null) {
+      targetConfigs.add({
+        "identify": "create_goal_button",
+        "keyTarget": createGoalButtonKey,
+        "align": ContentAlign.top,
+        "paddingContent": const EdgeInsets.only(bottom: 24),
+        "paddingFocus": 4.0,
+        "title": "Новая цель",
+        "body": "Нажмите на плюс, чтобы добавить новую финансовую цель.",
+      });
+    }
+
+    final List<TargetFocus> targets = [];
+
+    for (int i = 0; i < targetConfigs.length; i++) {
+      final config = targetConfigs[i];
+      final bool isLast = i == targetConfigs.length - 1;
+
       targets.add(
         TargetFocus(
-          identify: "sync_status",
-          keyTarget: syncIconKey,
-          paddingFocus: 12,
+          identify: config["identify"],
+          keyTarget: config["keyTarget"],
+          paddingFocus: config["paddingFocus"] ?? 10.0,
           contents: [
             TargetContent(
-              align: ContentAlign.custom,
-              customPosition: CustomTargetContentPosition(
-                top: screenSize.height * 0.2,
-              ),
+              align: config["align"],
+              padding: config["paddingContent"] ?? EdgeInsets.zero,
+              customPosition: config["customPosition"],
               builder: (context, controller) => buildGuideCard(
-                title: "Офлайн изменения",
-                body:
-                    "Оранжевое облако означает, что изменения созданы офлайн. Они синхронизируются при появлении интернета.",
+                title: config["title"],
+                body: config["body"],
+                isLast: isLast,
               ),
             ),
           ],
@@ -127,35 +168,15 @@ class BalancePageGuide {
       );
     }
 
-    // 3. Кнопка добавления счета
-    targets.add(
-      TargetFocus(
-        identify: "add_wallet_fab",
-        keyTarget: fabKey,
-        paddingFocus: 4,
-        contents: [
-          TargetContent(
-            align: ContentAlign.top,
-            padding: const EdgeInsets.only(bottom: 24),
-            builder: (context, controller) => buildGuideCard(
-              title: "Создание счета",
-              body:
-                  "Нужен новый счет в другой валюте? Нажмите плюс, чтобы начать учет!",
-              isLast: true,
-            ),
-          ),
-        ],
-      ),
-    );
-
     return targets;
   }
 
   static void show({
     required BuildContext context,
-    required GlobalKey firstWalletKey,
-    required GlobalKey? syncIconKey,
-    required GlobalKey fabKey,
+    GlobalKey? tabBarKey,
+    GlobalKey? calcButtonKey,
+    GlobalKey? createGoalButtonKey,
+    GlobalKey? targetKey,
     required VoidCallback onFinish,
     required VoidCallback onSkipAll,
   }) {
@@ -163,15 +184,21 @@ class BalancePageGuide {
 
     final targets = _createTargets(
       context: context,
-      firstWalletKey: firstWalletKey,
-      syncIconKey: syncIconKey,
-      fabKey: fabKey,
+      tabBarKey: tabBarKey,
+      calcButtonKey: calcButtonKey,
+      createGoalButtonKey: createGoalButtonKey,
+      targetKey: targetKey,
       onSkipCurrent: () => tutorial.next(),
       onSkipAll: () {
         onSkipAll();
         tutorial.finish();
       },
     );
+
+    if (targets.isEmpty) {
+      onFinish();
+      return;
+    }
 
     tutorial = TutorialCoachMark(
       targets: targets,

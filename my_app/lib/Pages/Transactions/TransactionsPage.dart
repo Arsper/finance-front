@@ -70,18 +70,23 @@ class _TransactionsPageState extends State<TransactionsPage> {
       localStorage,
     );
 
-    _initialLoad().then((_) {
-      if (widget.startGuide) {
-        _checkAndStartGuide();
-      }
-    });
+    if (widget.startGuide) {
+      _checkAndStartGuide();
+    }
+
+    _initialLoad();
+
     _scrollController.addListener(_onScroll);
   }
 
   Future<void> _checkAndStartGuide() async {
     final String guideId = 'transactions_page_v1';
     final bool alreadySeen = await _guideManager.hasSeenGuide(guideId);
-    if (!mounted || alreadySeen || !widget.startGuide || isLoading) return;
+    if (!mounted || alreadySeen || !widget.startGuide) return;
+
+    setState(() {
+      isLoading = false;
+    });
 
     _guideManager.runGuide(
       showGuide: _triggerGuide,
@@ -92,8 +97,11 @@ class _TransactionsPageState extends State<TransactionsPage> {
   }
 
   void _triggerGuide() {
+    if (!mounted) return;
+
     setState(() {
       _hasPhantomTransaction = true;
+      isLoading = false;
       allTransactions = [
         {
           'idTransaction': -1,
@@ -273,23 +281,24 @@ class _TransactionsPageState extends State<TransactionsPage> {
       if (results[1].isNotEmpty) await localStorage.saveCategories(results[1]);
 
       if (!mounted) return;
-      setState(() {
-        if (!_hasPhantomTransaction) {
-          allTransactions = List<Map<String, dynamic>>.from(txResult);
-        }
-        categories = results[1].isNotEmpty
-            ? List<Map<String, dynamic>>.from(results[1])
-            : categories;
-        activeLimits = List<Map<String, dynamic>>.from(results[3]);
-        currentBillBalance = (freshWallet['currentBalance'] as num? ?? 0.0)
-            .toDouble();
 
-        if (txResult.length < pageSize) {
-          hasMore = false;
-        }
-        currentPage++;
-        isLoading = false;
-      });
+      if (!_hasPhantomTransaction) {
+        setState(() {
+          allTransactions = List<Map<String, dynamic>>.from(txResult);
+          categories = results[1].isNotEmpty
+              ? List<Map<String, dynamic>>.from(results[1])
+              : categories;
+          activeLimits = List<Map<String, dynamic>>.from(results[3]);
+          currentBillBalance = (freshWallet['currentBalance'] as num? ?? 0.0)
+              .toDouble();
+
+          if (txResult.length < pageSize) {
+            hasMore = false;
+          }
+          currentPage++;
+          isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint("Ошибка обновления данных через сеть: $e");
       if (mounted) setState(() => isLoading = false);
@@ -345,134 +354,132 @@ class _TransactionsPageState extends State<TransactionsPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) return const Center(child: CircularProgressIndicator());
+
     final stats = _calculateDailyStats();
     final bool hasPendingSync = allTransactions.any(
       (tx) => tx['localUpdated'] == true || tx['isSynced'] == false,
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          key: _appBarTitleKey,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    widget.billName,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+    return AbsorbPointer(
+      absorbing: _hasPhantomTransaction,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Column(
+            key: _appBarTitleKey,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      widget.billName,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                ),
-                if (isOffline) ...[
-                  const SizedBox(width: 6),
-                  Icon(
-                    Icons.cloud_off,
-                    size: 14,
-                    color: hasPendingSync ? Colors.orange : Colors.grey,
-                  ),
+                  if (isOffline) ...[
+                    const SizedBox(width: 6),
+                    Icon(
+                      Icons.cloud_off,
+                      size: 14,
+                      color: hasPendingSync ? Colors.orange : Colors.grey,
+                    ),
+                  ],
                 ],
-              ],
+              ),
+              Text(
+                "Остаток: ${currentBillBalance.toStringAsFixed(2)} ${widget.currencySymbol}",
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.analytics_outlined),
+              key: _statsIconKey,
+              tooltip: "Статистика",
+              onPressed: isOffline
+                  ? null
+                  : () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BillStatisticsPage(
+                            billId: widget.billId,
+                            billName: widget.billName,
+                            currencySymbol: widget.currencySymbol,
+                          ),
+                        ),
+                      );
+                    },
             ),
-            Text(
-              "Остаток: ${currentBillBalance.toStringAsFixed(2)} ${widget.currencySymbol}",
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: 0.7),
+            IconButton(
+              key: _filterKey,
+              onPressed: _openFilters,
+              icon: Badge(
+                isLabelVisible: _isFilterActive,
+                child: const Icon(Icons.tune),
               ),
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.analytics_outlined),
-            key: _statsIconKey,
-            tooltip: "Статистика",
-            onPressed: isOffline
-                ? null
-                : () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => BillStatisticsPage(
-                          billId: widget.billId,
-                          billName: widget.billName,
-                          currencySymbol: widget.currencySymbol,
-                        ),
-                      ),
-                    );
-                  },
-          ),
-          IconButton(
-            key: _filterKey,
-            onPressed: _openFilters,
-            icon: Badge(
-              isLabelVisible: _isFilterActive,
-              child: const Icon(Icons.tune),
-            ),
-          ),
-        ],
-      ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                _buildActiveFiltersInfo(),
-                Container(child: _buildStatsHeader(stats)),
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: _refreshData,
-                    child: allTransactions.isEmpty
-                        ? const Center(child: Text("Нет операций"))
-                        : ListView.builder(
-                            controller: _scrollController,
-                            itemCount:
-                                allTransactions.length +
-                                (hasMore && !isOffline ? 1 : 0),
-                            itemBuilder: (context, index) {
-                              if (index == allTransactions.length) {
-                                return const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 16),
-                                  child: Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                );
-                              }
+        body: Column(
+          children: [
+            _buildActiveFiltersInfo(),
+            Container(child: _buildStatsHeader(stats)),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _refreshData,
+                child: allTransactions.isEmpty
+                    ? const Center(child: Text("Нет операций"))
+                    : ListView.builder(
+                        controller: _scrollController,
+                        itemCount:
+                            allTransactions.length +
+                            (hasMore && !isOffline ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (index == allTransactions.length) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Center(child: CircularProgressIndicator()),
+                            );
+                          }
 
-                              final t = allTransactions[index];
-                              bool showHeader =
-                                  index == 0 ||
-                                  t['transactionDate'] !=
-                                      allTransactions[index -
-                                          1]['transactionDate'];
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (showHeader)
-                                    _buildDateHeader(
-                                      t['transactionDate'] ?? '',
-                                    ),
-                                  _buildTransactionTile(t, index),
-                                ],
-                              );
-                            },
-                          ),
-                  ),
-                ),
-              ],
+                          final t = allTransactions[index];
+                          bool showHeader =
+                              index == 0 ||
+                              t['transactionDate'] !=
+                                  allTransactions[index - 1]['transactionDate'];
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (showHeader)
+                                _buildDateHeader(t['transactionDate'] ?? ''),
+                              _buildTransactionTile(t, index),
+                            ],
+                          );
+                        },
+                      ),
+              ),
             ),
-      floatingActionButton: AppFloatingButton(
-        key: _fabKey,
-        onPressed: () {
-          _openTransactionForm();
-        },
+          ],
+        ),
+        floatingActionButton: AppFloatingButton(
+          key: _fabKey,
+          onPressed: () {
+            _openTransactionForm();
+          },
+        ),
       ),
     );
   }

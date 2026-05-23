@@ -5,6 +5,8 @@ import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
 import 'package:my_app/helpers/AmountLimitFormatte.dart';
 import 'package:my_app/helpers/validators.dart';
+import 'package:my_app/Pages/Guide/financial_goals_guide.dart';
+import 'package:my_app/Pages/Guide/guide_manager.dart';
 
 class GoalsListTab extends StatefulWidget {
   const GoalsListTab({super.key});
@@ -20,11 +22,46 @@ class GoalsListTabState extends State<GoalsListTab> {
   List<dynamic> goals = [];
   List<dynamic> bills = [];
   bool isLoading = true;
+  bool _isGuideActive = false;
+  final GlobalKey _goalItemKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadData().then((_) => _checkGuide());
+  }
+
+  Future<void> _checkGuide() async {
+    final manager = GuideManager();
+    const String guideId = 'goals_list_v1';
+    if (await manager.hasSeenGuide(guideId)) return;
+
+    await manager.runGuide(
+      showGuide: () {
+        if (!mounted) return;
+
+        if (_goalItemKey.currentContext == null) return;
+
+        setState(() => _isGuideActive = true);
+
+        FinancialGoalsGuide.show(
+          context: context,
+          targetKey: _goalItemKey,
+          onFinish: () async {
+            await manager.markGuideAsSeen(guideId);
+            if (mounted) setState(() => _isGuideActive = false);
+          },
+          onSkipAll: () async {
+            await manager.markGuideAsSeen(guideId);
+            await manager.disableAllGuidesForever();
+            if (mounted) setState(() => _isGuideActive = false);
+          },
+        );
+      },
+      onSkippedOrFinished: () {
+        if (mounted) setState(() => _isGuideActive = false);
+      },
+    );
   }
 
   Future<void> _loadData() async {
@@ -66,115 +103,139 @@ class GoalsListTabState extends State<GoalsListTab> {
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      backgroundColor: colorScheme.surface,
-      appBar: AppBar(title: Text("Финансовые цели"), actions: []),
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        child: goals.isEmpty
-            ? Center(
-                child: Text(
-                  "У вас пока нет целей",
-                  style: TextStyle(color: colorScheme.onSurfaceVariant),
-                ),
-              )
-            : ListView.builder(
-                itemCount: goals.length,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                itemBuilder: (context, index) {
-                  final goal = goals[index];
-                  final double target = (goal['targetAmount'] as num)
-                      .toDouble();
-                  final double current = (goal['currentAmount'] ?? 0)
-                      .toDouble();
-                  final double remaining = (target - current) < 0
-                      ? 0
-                      : (target - current);
-                  final linkedBill = _findBill(goal['billId']);
-
-                  String symbol =
-                      goal['currencyCode'] ?? linkedBill?['currencyCode'] ?? '';
-                  double progress = target == 0 ? 0 : (current / target);
-                  if (progress > 1.0) progress = 1.0;
-                  final bool isCompleted = progress >= 1.0;
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? colorScheme.surfaceContainer
-                          : Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.02),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
+    return AbsorbPointer(
+      absorbing: _isGuideActive,
+      child: Scaffold(
+        backgroundColor: colorScheme.surface,
+        appBar: AppBar(title: const Text("Финансовые цели"), actions: []),
+        body: RefreshIndicator(
+          onRefresh: _loadData,
+          child: goals.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        key: _goalItemKey,
+                        width: MediaQuery.of(context).size.width * 0.85,
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerHighest.withValues(
+                            alpha: 0.3,
+                          ),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: colorScheme.outlineVariant),
                         ),
-                      ],
-                      border: Border.all(
-                        color: colorScheme.outlineVariant.withValues(
-                          alpha: 0.4,
+                        child: Text(
+                          "Здесь будут отображаться ваши финансовые цели",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: colorScheme.onSurfaceVariant),
                         ),
                       ),
-                    ),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(24),
-                      onTap: () => _showEditDialog(goal),
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          children: [
-                            Column(
-                              children: [
-                                Text(
-                                  goal['name'] ?? "Цель",
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  "Цель: ${target.toStringAsFixed(0)} $symbol",
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 20),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Expanded(
-                                  child: _buildSliderWithText(
-                                    context,
-                                    progress,
-                                    current,
-                                    remaining,
-                                    symbol,
-                                    isCompleted,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                _buildPlusButton(context, isCompleted, goal),
-                              ],
-                            ),
-                          ],
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: goals.length,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  itemBuilder: (context, index) {
+                    final goal = goals[index];
+                    final double target = (goal['targetAmount'] as num)
+                        .toDouble();
+                    final double current = (goal['currentAmount'] ?? 0)
+                        .toDouble();
+                    final double remaining = (target - current) < 0
+                        ? 0
+                        : (target - current);
+                    final linkedBill = _findBill(goal['billId']);
+
+                    String symbol =
+                        goal['currencyCode'] ??
+                        linkedBill?['currencyCode'] ??
+                        '';
+                    double progress = target == 0 ? 0 : (current / target);
+                    if (progress > 1.0) progress = 1.0;
+                    final bool isCompleted = progress >= 1.0;
+
+                    return Container(
+                      key: index == 0 ? _goalItemKey : null,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? colorScheme.surfaceContainer
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.02),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                        border: Border.all(
+                          color: colorScheme.outlineVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(24),
+                        onTap: () => _showEditDialog(goal),
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            children: [
+                              Column(
+                                children: [
+                                  Text(
+                                    goal['name'] ?? "Цель",
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    "Цель: ${target.toStringAsFixed(0)} $symbol",
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Expanded(
+                                    child: _buildSliderWithText(
+                                      context,
+                                      progress,
+                                      current,
+                                      remaining,
+                                      symbol,
+                                      isCompleted,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  _buildPlusButton(context, isCompleted, goal),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }

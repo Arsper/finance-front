@@ -8,7 +8,17 @@ import 'package:my_app/helpers/validators.dart';
 
 class CalculatorTab extends StatefulWidget {
   final VoidCallback onGoalCreated;
-  const CalculatorTab({super.key, required this.onGoalCreated});
+  final GlobalKey fabKey;
+  final GlobalKey calcButtonKey;
+  final GlobalKey createGoalButtonKey;
+
+  const CalculatorTab({
+    super.key,
+    required this.onGoalCreated,
+    required this.fabKey,
+    required this.calcButtonKey,
+    required this.createGoalButtonKey,
+  });
 
   @override
   State<CalculatorTab> createState() => _CalculatorTabState();
@@ -300,6 +310,7 @@ class _CalculatorTabState extends State<CalculatorTab> {
                         ),
                         shadowColor: colorScheme.primary.withValues(alpha: 0.3),
                       ),
+                      key: widget.calcButtonKey,
                       onPressed: isLoading ? null : _calculate,
                       child: isLoading
                           ? SizedBox(
@@ -401,6 +412,7 @@ class _CalculatorTabState extends State<CalculatorTab> {
                     ),
                     const SizedBox(height: 20),
                     InkWell(
+                      key: widget.createGoalButtonKey,
                       onTap: () => _showCreateGoalBottomSheet(context),
                       borderRadius: BorderRadius.circular(16),
                       child: Container(

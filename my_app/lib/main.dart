@@ -55,6 +55,8 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     _themeMode = _getThemeModeFromString(widget.savedTheme);
+    // final prefs = await SharedPreferences.getInstance();
+    // await prefs.clear();
     //_guideManager.resetAllGuides();
   }
 

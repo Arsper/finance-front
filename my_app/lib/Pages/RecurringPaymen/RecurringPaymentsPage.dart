@@ -5,6 +5,8 @@ import 'package:my_app/Pages/RecurringPaymen/recurring_payment_form.dart';
 import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
 import 'package:my_app/Pages/Transactions/components/category_search_picker.dart';
+import 'package:my_app/Pages/Guide/guide_manager.dart'; // Импортируйте ваш менеджер
+import 'package:my_app/Pages/Guide/recurring_payments_guide.dart'; // Импортируйте ваш файл с TutorialCoachMark
 
 class RecurringPaymentsPage extends StatefulWidget {
   const RecurringPaymentsPage({super.key});
@@ -17,6 +19,11 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
   final UserRemoteDataSource api = UserRemoteDataSource(
     dio: Dioclient.instance,
   );
+  final GuideManager _guideManager = GuideManager();
+
+  // Ключи для гайда
+  final GlobalKey _fabKey = GlobalKey();
+  final GlobalKey _firstItemKey = GlobalKey();
 
   List<dynamic> payments = [];
   List<dynamic> wallets = [];
@@ -26,7 +33,50 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadData().then((_) => _checkAndStartGuide());
+  }
+
+  Future<void> _checkAndStartGuide() async {
+    final bool alreadySeen = await _guideManager.hasSeenGuide(
+      'recurring_payments_v1',
+    );
+    if (alreadySeen || !mounted) return;
+
+    setState(() {
+      if (payments.isEmpty) {
+        payments = [
+          {
+            'idPayment': -2,
+            'description': 'Пример: Соседи',
+            'amount': -299.0,
+            'categoryName': 'Продукты',
+            'nextPaymentDate': DateTime.now().toString(),
+            'periodicity': 'MONTHLY',
+          },
+        ];
+      }
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      RecurringPaymentsGuide.show(
+        context: context,
+        firstItemKey: _firstItemKey,
+        fabKey: _fabKey,
+        onFinish: () async {
+          await _guideManager.markGuideAsSeen('recurring_payments_v1');
+          if (mounted) {
+            _loadData();
+          }
+        },
+        onSkipAll: () async {
+          await _guideManager.markGuideAsSeen('recurring_payments_v1');
+          await _guideManager.disableAllGuidesForever();
+          if (mounted) {
+            _loadData();
+          }
+        },
+      );
+    });
   }
 
   String _formatDate(String? dateStr) {
@@ -90,7 +140,7 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
             return;
           }
 
-          String symbol = "₽";
+          String symbol = "\$";
           try {
             final wallet = wallets.firstWhere(
               (w) => w['billId']?.toString() == selectedBillId.toString(),
@@ -181,6 +231,7 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
                   ).currencySymbol;
 
                   return Container(
+                    key: index == 0 ? _firstItemKey : null,
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
                       color: colorScheme.surface,
@@ -363,6 +414,7 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
               ),
       ),
       floatingActionButton: AppFloatingButton(
+        key: _fabKey,
         onPressed: () => _openPaymentForm(),
       ),
     );

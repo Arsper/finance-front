@@ -25,6 +25,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _isOnline = true;
   bool _isServerAlive = true;
   final GuideManager _guideManager = GuideManager();
+
+  bool _isCheckingHomeGuide = true;
   bool _isMainGuideFinished = false;
   final String _homeGuideId = 'home_page_v1';
 
@@ -37,9 +39,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final GlobalKey _logoutKey = GlobalKey();
   final GlobalKey _bottomNavKey = GlobalKey();
 
-  // Превращаем геттер в метод или передаем динамический стейт гайда во вкладку
   List<Widget> get _widgetOptions => <Widget>[
-    BalanceTab(startGuide: _isMainGuideFinished), // Передаем состояние триггера
+    BalanceTab(
+      startGuide: _isMainGuideFinished,
+      isWaitingForParentGuide: _isCheckingHomeGuide || !_isMainGuideFinished,
+    ),
     const RecurringPaymentsPage(),
     const FinancialCalculationPage(),
     const ExchangeRatesPage(),
@@ -65,8 +69,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final bool alreadySeen = await _guideManager.hasSeenGuide(_homeGuideId);
 
     if (alreadySeen) {
-      setState(() => _isMainGuideFinished = true);
+      if (mounted) {
+        setState(() {
+          _isCheckingHomeGuide = false;
+          _isMainGuideFinished = true;
+        });
+      }
       return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isCheckingHomeGuide = false;
+      });
     }
 
     _guideManager.runGuide(

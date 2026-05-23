@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:my_app/CustomerWidgets/AppFloatingButton.dart';
 import 'package:my_app/CustomerWidgets/WalletFormSheet.dart';
@@ -13,7 +14,13 @@ import 'package:my_app/repositories/wallet_repository.dart';
 
 class BalanceTab extends StatefulWidget {
   final bool startGuide;
-  const BalanceTab({super.key, this.startGuide = false});
+  final bool isWaitingForParentGuide;
+
+  const BalanceTab({
+    super.key,
+    this.startGuide = false,
+    this.isWaitingForParentGuide = false,
+  });
 
   @override
   State<BalanceTab> createState() => _BalanceTabState();
@@ -28,12 +35,13 @@ class _BalanceTabState extends State<BalanceTab> {
   List<dynamic> wallets = [];
   List<Currency> currencies = [];
   bool isLoading = true;
+  bool _isCheckingGuide = true;
   bool _guideWasShown = false;
   bool _hasPhantomWallet = false;
 
   final GlobalKey _firstWalletCardKey = GlobalKey();
   final GlobalKey _fabKey = GlobalKey();
-  GlobalKey? _firstUnsyncedIconKey;
+  final GlobalKey _syncIconKey = GlobalKey();
   final GuideManager _guideManager = GuideManager();
 
   @override
@@ -48,79 +56,163 @@ class _BalanceTabState extends State<BalanceTab> {
 
     transactionRepository = TransactionRepository(remoteSource, localStorage);
 
-    _refreshData().then((_) {
-      _checkAndStartGuide();
+    _initPage();
+  }
+
+  Future<void> _initPage() async {
+    await _initializeAndCheckGuide();
+  }
+
+  void _setPhantomData() {
+    setState(() {
+      _hasPhantomWallet = true;
+      _isCheckingGuide = false;
+      isLoading = false;
+      wallets = [
+        {
+          'id': -1,
+          'name': 'Пример счёта',
+          'currentBalance': 1500.0,
+          'currencyCode': 'USD',
+          'isSynced': false,
+        },
+      ];
     });
+  }
+
+  Future<void> _initializeAndCheckGuide() async {
+    if (widget.isWaitingForParentGuide) {
+      _setPhantomData();
+      return;
+    }
+
+    if (widget.startGuide) {
+      final bool alreadySeen = await _guideManager.hasSeenGuide(_guideId);
+
+      if (!mounted) return;
+
+      if (!alreadySeen) {
+        _setPhantomData();
+        await _checkAndStartGuide();
+        return;
+      }
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _isCheckingGuide = false;
+      _hasPhantomWallet = false;
+    });
+
+    await _loadCachedData();
+    _syncWithServer();
+  }
+
+  Future<void> _loadCachedData() async {
+    if (!mounted || _hasPhantomWallet || widget.isWaitingForParentGuide) return;
+
+    setState(() => isLoading = true);
+
+    try {
+      final cachedWallets = await localStorage.getWallets();
+
+      if (mounted && cachedWallets.isNotEmpty && !_hasPhantomWallet) {
+        setState(() {
+          wallets = cachedWallets
+              .where((w) => w['isDeletedOffline'] != true)
+              .toList();
+        });
+      }
+    } catch (e) {
+      debugPrint("Ошибка загрузки локального кэша: $e");
+    } finally {
+      if (mounted && !_hasPhantomWallet) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _syncWithServer() async {
+    if (!mounted || _hasPhantomWallet || widget.isWaitingForParentGuide) return;
+
+    try {
+      final bool isOnline = await transactionRepository.isServerAvailable();
+      if (isOnline && !_hasPhantomWallet) {
+        await transactionRepository.syncOfflineTransactions();
+        await walletRepository.syncOfflineWallets();
+      }
+
+      if (_hasPhantomWallet) return;
+
+      final w = await walletRepository.getWallets();
+      final c = await walletRepository.getCurrencies();
+
+      if (mounted && !_hasPhantomWallet) {
+        setState(() {
+          wallets = w;
+          currencies = c;
+        });
+      }
+    } catch (e) {
+      debugPrint("Ошибка фоновой синхронизации: $e");
+    }
   }
 
   @override
   void didUpdateWidget(covariant BalanceTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.startGuide && !oldWidget.startGuide) {
-      _checkAndStartGuide();
+
+    if (oldWidget.isWaitingForParentGuide && !widget.isWaitingForParentGuide) {
+      _initializeAndCheckGuide();
+    } else if (widget.startGuide && !oldWidget.startGuide) {
+      _initializeAndCheckGuide();
     }
   }
 
   Future<void> _checkAndStartGuide() async {
+    final Completer<void> completer = Completer<void>();
     final bool alreadySeen = await _guideManager.hasSeenGuide(_guideId);
-    if (!mounted ||
-        _guideWasShown ||
-        alreadySeen ||
-        !widget.startGuide ||
-        isLoading) {
+    if (!mounted || _guideWasShown || alreadySeen || !widget.startGuide) {
       return;
     }
 
     _guideManager.runGuide(
       showGuide: () {
-        setState(() {
-          _guideWasShown = true;
-          if (wallets.isEmpty) {
-            _hasPhantomWallet = true;
-            wallets = [
-              {
-                'id': -1,
-                'name': 'Пример счёта',
-                'currentBalance': 1500.00,
-                'currencyCode': 'USD',
-                'isSynced': false,
-              },
-            ];
-          }
-        });
+        if (!mounted) return;
+        _setPhantomData();
+        _guideWasShown = true;
 
         BalancePageGuide.show(
           context: context,
           firstWalletKey: _firstWalletCardKey,
-          syncIconKey: _firstUnsyncedIconKey,
+          syncIconKey: _syncIconKey,
           fabKey: _fabKey,
           onFinish: () async {
             await _guideManager.markGuideAsSeen(_guideId);
-
             if (mounted) {
-              setState(() {
-                _hasPhantomWallet = false;
-                _refreshData();
-              });
+              setState(() => _hasPhantomWallet = false);
+              if (!completer.isCompleted) completer.complete();
+              _refreshData();
             }
           },
           onSkipAll: () async {
             await _guideManager.markGuideAsSeen(_guideId);
             await _guideManager.disableAllGuidesForever();
-
             if (mounted) {
-              setState(() {
-                _hasPhantomWallet = false;
-                _refreshData();
-              });
+              setState(() => _hasPhantomWallet = false);
+              if (!completer.isCompleted) completer.complete();
+              _refreshData();
             }
           },
         );
       },
       onSkippedOrFinished: () {
-        _guideManager.markGuideAsSeen(_guideId);
+        if (!completer.isCompleted) completer.complete();
       },
     );
+
+    return completer.future;
   }
 
   int? _getWalletId(Map<String, dynamic>? wallet) {
@@ -130,14 +222,13 @@ class _BalanceTabState extends State<BalanceTab> {
   }
 
   Future<void> _refreshData() async {
-    if (!mounted) return;
-    if (_hasPhantomWallet) return;
+    if (!mounted || _hasPhantomWallet || widget.isWaitingForParentGuide) return;
     setState(() => isLoading = true);
 
     try {
       final cachedWallets = await localStorage.getWallets();
 
-      if (mounted && cachedWallets.isNotEmpty) {
+      if (mounted && cachedWallets.isNotEmpty && !_hasPhantomWallet) {
         setState(() {
           wallets = cachedWallets
               .where((w) => w['isDeletedOffline'] != true)
@@ -148,19 +239,19 @@ class _BalanceTabState extends State<BalanceTab> {
 
       final bool isOnline = await transactionRepository.isServerAvailable();
 
-      if (isOnline) {
+      if (isOnline && !_hasPhantomWallet) {
         await transactionRepository.syncOfflineTransactions();
         await walletRepository.syncOfflineWallets();
       }
 
+      if (_hasPhantomWallet) return;
+
       final w = await walletRepository.getWallets();
       final c = await walletRepository.getCurrencies();
 
-      if (mounted) {
+      if (mounted && !_hasPhantomWallet) {
         setState(() {
-          if (!_hasPhantomWallet) {
-            wallets = w;
-          }
+          wallets = w;
           currencies = c;
           isLoading = false;
         });
@@ -243,173 +334,179 @@ class _BalanceTabState extends State<BalanceTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isCheckingGuide) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     if (isLoading) return const Center(child: CircularProgressIndicator());
     final colorScheme = Theme.of(context).colorScheme;
 
-    _firstUnsyncedIconKey = null;
+    return AbsorbPointer(
+      absorbing: _hasPhantomWallet,
+      child: Scaffold(
+        body: RefreshIndicator(
+          onRefresh: _refreshData,
+          child: wallets.isEmpty
+              ? const Center(child: Text("Счетов пока нет"))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: wallets.length,
+                  itemBuilder: (context, index) {
+                    final wallet = wallets[index];
+                    final int? billId = _getWalletId(wallet);
+                    final String name = wallet['name'] ?? 'Без названия';
+                    final String balance =
+                        wallet['currentBalance']?.toString() ?? '0';
+                    final double balanceValue = double.tryParse(balance) ?? 0.0;
+                    final String code = wallet['currencyCode'] ?? '???';
 
-    return Scaffold(
-      body: RefreshIndicator(
-        onRefresh: _refreshData,
-        child: wallets.isEmpty
-            ? const Center(child: Text("Счетов пока нет"))
-            : ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: wallets.length,
-                itemBuilder: (context, index) {
-                  final wallet = wallets[index];
-                  final int? billId = _getWalletId(wallet);
-                  final String name = wallet['name'] ?? 'Без названия';
-                  final String balance =
-                      wallet['currentBalance']?.toString() ?? '0';
-                  final double balanceValue = double.tryParse(balance) ?? 0.0;
-                  final String code = wallet['currencyCode'] ?? '???';
-
-                  final List<Currency> fallbackCurrencies = [
-                    Currency(
-                      idCurrencies: 1,
-                      code: 'USD',
-                      name: 'US Dollar',
-                      symbol: '\$',
-                    ),
-                    Currency(
-                      idCurrencies: 2,
-                      code: 'EUR',
-                      name: 'Euro',
-                      symbol: '€',
-                    ),
-                    Currency(
-                      idCurrencies: 3,
-                      code: 'RUB',
-                      name: 'Russian Ruble',
-                      symbol: '₽',
-                    ),
-                    Currency(
-                      idCurrencies: 4,
-                      code: 'BYN',
-                      name: 'Belarusian Ruble',
-                      symbol: 'Б',
-                    ),
-                  ];
-
-                  final List<Currency> effectiveCurrencies =
-                      currencies.isNotEmpty ? currencies : fallbackCurrencies;
-                  final String symbol = effectiveCurrencies
-                      .firstWhere(
-                        (c) => c.code == code,
-                        orElse: () => Currency(
-                          idCurrencies: 0,
-                          code: code,
-                          name: '',
-                          symbol: code,
-                        ),
-                      )
-                      .symbol;
-                  final Color balanceColor = balanceValue == 0
-                      ? colorScheme.onSurface
-                      : (balanceValue > 0 ? Colors.green : Colors.red);
-
-                  final bool isNotSynced = wallet['isSynced'] == false;
-                  GlobalKey? itemIconKey;
-                  if (isNotSynced && _firstUnsyncedIconKey == null) {
-                    _firstUnsyncedIconKey = GlobalKey();
-                    itemIconKey = _firstUnsyncedIconKey;
-                  }
-
-                  return Card(
-                    key: index == 0 ? _firstWalletCardKey : null,
-                    elevation: 0,
-                    margin: const EdgeInsets.only(bottom: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(
-                        color: colorScheme.outlineVariant.withValues(
-                          alpha: 0.5,
-                        ),
+                    final List<Currency> fallbackCurrencies = [
+                      Currency(
+                        idCurrencies: 1,
+                        code: 'USD',
+                        name: 'US Dollar',
+                        symbol: '\$',
                       ),
-                    ),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 4,
+                      Currency(
+                        idCurrencies: 2,
+                        code: 'EUR',
+                        name: 'Euro',
+                        symbol: '€',
                       ),
-                      onTap: () async {
-                        if (billId == -1) return;
-                        if (billId != null) {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => TransactionsPage(
-                                billId: billId,
-                                billName: name,
-                                currencySymbol: symbol,
-                              ),
-                            ),
-                          );
-                          _refreshData();
-                        }
-                      },
-                      leading: CircleAvatar(
-                        backgroundColor: colorScheme.primary.withValues(
-                          alpha: 0.1,
-                        ),
-                        child: Icon(
-                          Icons.account_balance_wallet,
-                          color: colorScheme.primary,
-                        ),
+                      Currency(
+                        idCurrencies: 3,
+                        code: 'RUB',
+                        name: 'Russian Ruble',
+                        symbol: '₽',
                       ),
-                      title: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                      Currency(
+                        idCurrencies: 4,
+                        code: 'BYN',
+                        name: 'Belarusian Ruble',
+                        symbol: 'Б',
+                      ),
+                    ];
+
+                    final List<Currency> effectiveCurrencies =
+                        currencies.isNotEmpty ? currencies : fallbackCurrencies;
+                    final String symbol = effectiveCurrencies
+                        .firstWhere(
+                          (c) => c.code == code,
+                          orElse: () => Currency(
+                            idCurrencies: 0,
+                            code: code,
+                            name: '',
+                            symbol: code,
                           ),
-                          if (isNotSynced) ...[
-                            const SizedBox(width: 6),
-                            Icon(
-                              key: itemIconKey,
-                              Icons.cloud_off,
-                              size: 16,
-                              color: Colors.orange,
+                        )
+                        .symbol;
+                    final Color balanceColor = balanceValue == 0
+                        ? colorScheme.onSurface
+                        : (balanceValue > 0 ? Colors.green : Colors.red);
+
+                    final bool isNotSynced = wallet['isSynced'] == false;
+                    GlobalKey? itemIconKey;
+                    if (isNotSynced && index == 0) {
+                      itemIconKey = _syncIconKey;
+                    }
+
+                    return Card(
+                      key: index == 0 ? _firstWalletCardKey : null,
+                      elevation: 0,
+                      margin: const EdgeInsets.only(bottom: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(
+                          color: colorScheme.outlineVariant.withValues(
+                            alpha: 0.5,
+                          ),
+                        ),
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        onTap: () async {
+                          if (billId == -1) return;
+                          if (billId != null) {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => TransactionsPage(
+                                  billId: billId,
+                                  billName: name,
+                                  currencySymbol: symbol,
+                                ),
+                              ),
+                            );
+                            _refreshData();
+                          }
+                        },
+                        leading: CircleAvatar(
+                          backgroundColor: colorScheme.primary.withValues(
+                            alpha: 0.1,
+                          ),
+                          child: Icon(
+                            Icons.account_balance_wallet,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (isNotSynced) ...[
+                              const SizedBox(width: 6),
+                              Icon(
+                                key: itemIconKey,
+                                Icons.cloud_off,
+                                size: 16,
+                                color: Colors.orange,
+                              ),
+                            ],
+                          ],
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildBalanceInfo(
+                              balance,
+                              symbol,
+                              code,
+                              balanceColor,
+                              colorScheme,
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: Icon(
+                                Icons.edit_note,
+                                color: colorScheme.primary.withValues(
+                                  alpha: 0.7,
+                                ),
+                                size: 22,
+                              ),
+                              onPressed: () =>
+                                  _openWalletForm(existingWallet: wallet),
                             ),
                           ],
-                        ],
+                        ),
                       ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _buildBalanceInfo(
-                            balance,
-                            symbol,
-                            code,
-                            balanceColor,
-                            colorScheme,
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            icon: Icon(
-                              Icons.edit_note,
-                              color: colorScheme.primary.withValues(alpha: 0.7),
-                              size: 22,
-                            ),
-                            onPressed: () =>
-                                _openWalletForm(existingWallet: wallet),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-      ),
-      floatingActionButton: AppFloatingButton(
-        key: _fabKey,
-        onPressed: () => _openWalletForm(),
+                    );
+                  },
+                ),
+        ),
+        floatingActionButton: AppFloatingButton(
+          key: _fabKey,
+          onPressed: () => _openWalletForm(),
+        ),
       ),
     );
   }
