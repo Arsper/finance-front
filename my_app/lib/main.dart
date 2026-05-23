@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:my_app/Pages/Guide/guide_manager.dart';
 import 'package:my_app/Pages/home.dart';
@@ -93,6 +94,16 @@ class _MyAppState extends State<MyApp> {
       navigatorKey: navigatorKey,
       scaffoldMessengerKey: scaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
+
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+
+      supportedLocales: const [Locale('ru', 'RU'), Locale('en', 'US')],
+
+      locale: const Locale('ru', 'RU'),
       themeMode: _themeMode,
       theme: ThemeData(
         useMaterial3: true,

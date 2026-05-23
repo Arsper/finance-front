@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:my_app/CustomerWidgets/AppFloatingButton.dart';
 import 'package:my_app/CustomerWidgets/WalletFormSheet.dart';
@@ -11,6 +12,8 @@ import 'package:my_app/api/sources/local_storage_service.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
 import 'package:my_app/repositories/transaction_repository.dart';
 import 'package:my_app/repositories/wallet_repository.dart';
+
+enum BalanceState { loading, guide, ready }
 
 class BalanceTab extends StatefulWidget {
   final bool startGuide;
@@ -32,18 +35,26 @@ class _BalanceTabState extends State<BalanceTab> {
   late final TransactionRepository transactionRepository;
   final LocalStorageService localStorage = LocalStorageService();
 
+  BalanceState _currentState = BalanceState.loading;
+
   List<dynamic> wallets = [];
   List<Currency> currencies = [];
-  bool isLoading = true;
-  bool _isCheckingGuide = true;
   bool _guideWasShown = false;
-  bool _hasPhantomWallet = false;
-  bool _isDataLoaded = false;
 
   final GlobalKey _firstWalletCardKey = GlobalKey();
   final GlobalKey _fabKey = GlobalKey();
   final GlobalKey _syncIconKey = GlobalKey();
   final GuideManager _guideManager = GuideManager();
+
+  final List<dynamic> _fakeWallets = [
+    {
+      'id': -1,
+      'name': 'Пример счёта',
+      'currentBalance': 1500.0,
+      'currencyCode': 'USD',
+      'isSynced': false,
+    },
+  ];
 
   @override
   void initState() {
@@ -61,130 +72,96 @@ class _BalanceTabState extends State<BalanceTab> {
   }
 
   Future<void> _initPage() async {
-    await _initializeAndCheckGuide();
-  }
+    final bool alreadySeen = await _guideManager.hasSeenGuide(_guideId);
 
-  void _setPhantomData() {
-    setState(() {
-      _hasPhantomWallet = true;
-      _isCheckingGuide = false;
-      isLoading = false;
-      _isDataLoaded = true;
-      wallets = [
-        {
-          'id': -1,
-          'name': 'Пример счёта',
-          'currentBalance': 1500.0,
-          'currencyCode': 'USD',
-          'isSynced': false,
-        },
-      ];
-    });
-  }
+    if (!mounted) return;
 
-  Future<void> _initializeAndCheckGuide() async {
+    if (alreadySeen) {
+      setState(() {
+        _currentState = BalanceState.loading;
+      });
+      await _loadRealData();
+      return;
+    }
+
     if (widget.isWaitingForParentGuide) {
-      _setPhantomData();
+      setState(() {
+        _currentState = BalanceState.guide;
+        wallets = List.from(_fakeWallets);
+      });
       return;
     }
 
     if (widget.startGuide) {
-      final bool alreadySeen = await _guideManager.hasSeenGuide(_guideId);
+      setState(() {
+        _currentState = BalanceState.guide;
+        wallets = List.from(_fakeWallets);
+      });
 
-      if (!mounted) return;
+      await _checkAndStartGuide();
 
-      if (!alreadySeen) {
-        _setPhantomData();
-        await _checkAndStartGuide();
-        if (mounted && _hasPhantomWallet) {
-          setState(() {
-            _isCheckingGuide = false;
-            _hasPhantomWallet = false;
-            _isDataLoaded = false;
-          });
-          await _refreshData();
-          setState(() {
-            _isDataLoaded = true;
-          });
-        }
-        return;
+      if (mounted) {
+        setState(() {
+          _currentState = BalanceState.loading;
+        });
+        await _loadRealData();
       }
+      return;
     }
-
-    if (!mounted) return;
-
     setState(() {
-      _isCheckingGuide = false;
-      _hasPhantomWallet = false;
-      _isDataLoaded = false;
+      _currentState = BalanceState.loading;
     });
-
-    await _loadCachedData();
-    await _syncWithServer();
-
-    setState(() {
-      _isDataLoaded = true;
-    });
+    await _loadRealData();
   }
 
-  Future<void> _loadCachedData() async {
-    if (!mounted || _hasPhantomWallet || widget.isWaitingForParentGuide) return;
-
-    setState(() => isLoading = true);
+  Future<void> _loadRealData() async {
+    if (!mounted || _currentState == BalanceState.guide) return;
 
     try {
       final cachedWallets = await localStorage.getWallets();
-
-      if (mounted && cachedWallets.isNotEmpty && !_hasPhantomWallet) {
+      if (mounted &&
+          cachedWallets.isNotEmpty &&
+          _currentState != BalanceState.guide) {
         setState(() {
           wallets = cachedWallets
               .where((w) => w['isDeletedOffline'] != true)
               .toList();
+          _currentState = BalanceState.ready;
         });
       }
-    } catch (e) {
-      debugPrint("Ошибка загрузки локального кэша: $e");
-    } finally {
-      if (mounted && !_hasPhantomWallet) {
-        setState(() => isLoading = false);
-      }
-    }
-  }
-
-  Future<void> _syncWithServer() async {
-    if (!mounted || _hasPhantomWallet || widget.isWaitingForParentGuide) return;
-
-    try {
       final bool isOnline = await transactionRepository.isServerAvailable();
-      if (isOnline && !_hasPhantomWallet) {
+      if (isOnline && _currentState != BalanceState.guide) {
         await transactionRepository.syncOfflineTransactions();
         await walletRepository.syncOfflineWallets();
       }
 
-      if (_hasPhantomWallet) return;
+      if (_currentState == BalanceState.guide) return;
 
       final w = await walletRepository.getWallets();
       final c = await walletRepository.getCurrencies();
 
-      if (mounted && !_hasPhantomWallet) {
+      if (mounted && _currentState != BalanceState.guide) {
         setState(() {
           wallets = w;
           currencies = c;
+          _currentState = BalanceState.ready;
         });
       }
     } catch (e) {
-      debugPrint("Ошибка фоновой синхронизации: $e");
+      debugPrint("Ошибка загрузки данных: $e");
+      if (mounted && _currentState == BalanceState.loading) {
+        setState(() => _currentState = BalanceState.ready);
+      }
     }
   }
 
   @override
   void didUpdateWidget(covariant BalanceTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-
     if (oldWidget.isWaitingForParentGuide && !widget.isWaitingForParentGuide) {
-      _initializeAndCheckGuide();
+      _initPage();
     } else if (widget.startGuide && !oldWidget.startGuide) {
-      _initializeAndCheckGuide();
+      _initPage();
     }
   }
 
@@ -235,55 +212,44 @@ class _BalanceTabState extends State<BalanceTab> {
   }
 
   Future<void> _refreshData() async {
-    if (!mounted || _hasPhantomWallet || widget.isWaitingForParentGuide) return;
-
-    setState(() {
-      isLoading = true;
-      _isDataLoaded = false;
-    });
+    if (!mounted ||
+        _currentState == BalanceState.guide ||
+        widget.isWaitingForParentGuide) {
+      return;
+    }
 
     try {
       final cachedWallets = await localStorage.getWallets();
 
-      if (mounted && cachedWallets.isNotEmpty && !_hasPhantomWallet) {
+      if (mounted &&
+          cachedWallets.isNotEmpty &&
+          _currentState != BalanceState.guide) {
         setState(() {
           wallets = cachedWallets
               .where((w) => w['isDeletedOffline'] != true)
               .toList();
-          isLoading = false;
         });
       }
 
       final bool isOnline = await transactionRepository.isServerAvailable();
-
-      if (isOnline && !_hasPhantomWallet) {
+      if (isOnline && _currentState != BalanceState.guide) {
         await transactionRepository.syncOfflineTransactions();
         await walletRepository.syncOfflineWallets();
       }
 
-      if (_hasPhantomWallet) return;
+      if (_currentState == BalanceState.guide) return;
 
       final w = await walletRepository.getWallets();
       final c = await walletRepository.getCurrencies();
 
-      if (mounted && !_hasPhantomWallet) {
+      if (mounted && _currentState != BalanceState.guide) {
         setState(() {
           wallets = w;
           currencies = c;
-          isLoading = false;
         });
       }
     } catch (e) {
       debugPrint("Ошибка обновления данных: $e");
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isDataLoaded = true;
-        });
-      }
     }
   }
 
@@ -340,7 +306,7 @@ class _BalanceTabState extends State<BalanceTab> {
           );
           if (confirm && bottomSheetContext.mounted) {
             Navigator.pop(bottomSheetContext);
-            if (await walletRepository.deleteWallet(id)) _refreshData();
+            if (await walletRepository.deleteWallet(id)) _loadRealData();
           }
         },
         onSave: (data) async {
@@ -349,7 +315,7 @@ class _BalanceTabState extends State<BalanceTab> {
               ? await walletRepository.addWallet(data)
               : await walletRepository.updateWallet(id, data);
           if (ok) {
-            _refreshData();
+            _loadRealData();
             if (bottomSheetContext.mounted) Navigator.pop(bottomSheetContext);
           }
         },
@@ -359,7 +325,7 @@ class _BalanceTabState extends State<BalanceTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isCheckingGuide || !_isDataLoaded || isLoading) {
+    if (_currentState == BalanceState.loading) {
       return const Scaffold(
         body: Center(
           child: Column(
@@ -378,9 +344,10 @@ class _BalanceTabState extends State<BalanceTab> {
     }
 
     final colorScheme = Theme.of(context).colorScheme;
+    final bool isGuide = _currentState == BalanceState.guide;
 
     return AbsorbPointer(
-      absorbing: _hasPhantomWallet,
+      absorbing: isGuide,
       child: Scaffold(
         body: RefreshIndicator(
           onRefresh: _refreshData,
@@ -478,7 +445,7 @@ class _BalanceTabState extends State<BalanceTab> {
                                 ),
                               ),
                             );
-                            _refreshData();
+                            _loadRealData();
                           }
                         },
                         leading: CircleAvatar(
