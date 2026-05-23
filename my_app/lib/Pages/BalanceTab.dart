@@ -38,6 +38,7 @@ class _BalanceTabState extends State<BalanceTab> {
   bool _isCheckingGuide = true;
   bool _guideWasShown = false;
   bool _hasPhantomWallet = false;
+  bool _isDataLoaded = false;
 
   final GlobalKey _firstWalletCardKey = GlobalKey();
   final GlobalKey _fabKey = GlobalKey();
@@ -68,6 +69,7 @@ class _BalanceTabState extends State<BalanceTab> {
       _hasPhantomWallet = true;
       _isCheckingGuide = false;
       isLoading = false;
+      _isDataLoaded = true;
       wallets = [
         {
           'id': -1,
@@ -94,6 +96,17 @@ class _BalanceTabState extends State<BalanceTab> {
       if (!alreadySeen) {
         _setPhantomData();
         await _checkAndStartGuide();
+        if (mounted && _hasPhantomWallet) {
+          setState(() {
+            _isCheckingGuide = false;
+            _hasPhantomWallet = false;
+            _isDataLoaded = false;
+          });
+          await _refreshData();
+          setState(() {
+            _isDataLoaded = true;
+          });
+        }
         return;
       }
     }
@@ -103,10 +116,15 @@ class _BalanceTabState extends State<BalanceTab> {
     setState(() {
       _isCheckingGuide = false;
       _hasPhantomWallet = false;
+      _isDataLoaded = false;
     });
 
     await _loadCachedData();
-    _syncWithServer();
+    await _syncWithServer();
+
+    setState(() {
+      _isDataLoaded = true;
+    });
   }
 
   Future<void> _loadCachedData() async {
@@ -179,8 +197,11 @@ class _BalanceTabState extends State<BalanceTab> {
 
     _guideManager.runGuide(
       showGuide: () {
-        if (!mounted) return;
-        _setPhantomData();
+        if (!mounted) {
+          if (!completer.isCompleted) completer.complete();
+          return;
+        }
+
         _guideWasShown = true;
 
         BalancePageGuide.show(
@@ -190,20 +211,12 @@ class _BalanceTabState extends State<BalanceTab> {
           fabKey: _fabKey,
           onFinish: () async {
             await _guideManager.markGuideAsSeen(_guideId);
-            if (mounted) {
-              setState(() => _hasPhantomWallet = false);
-              if (!completer.isCompleted) completer.complete();
-              _refreshData();
-            }
+            if (!completer.isCompleted) completer.complete();
           },
           onSkipAll: () async {
             await _guideManager.markGuideAsSeen(_guideId);
             await _guideManager.disableAllGuidesForever();
-            if (mounted) {
-              setState(() => _hasPhantomWallet = false);
-              if (!completer.isCompleted) completer.complete();
-              _refreshData();
-            }
+            if (!completer.isCompleted) completer.complete();
           },
         );
       },
@@ -223,7 +236,11 @@ class _BalanceTabState extends State<BalanceTab> {
 
   Future<void> _refreshData() async {
     if (!mounted || _hasPhantomWallet || widget.isWaitingForParentGuide) return;
-    setState(() => isLoading = true);
+
+    setState(() {
+      isLoading = true;
+      _isDataLoaded = false;
+    });
 
     try {
       final cachedWallets = await localStorage.getWallets();
@@ -258,7 +275,15 @@ class _BalanceTabState extends State<BalanceTab> {
       }
     } catch (e) {
       debugPrint("Ошибка обновления данных: $e");
-      if (mounted) setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDataLoaded = true;
+        });
+      }
     }
   }
 
@@ -334,11 +359,24 @@ class _BalanceTabState extends State<BalanceTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isCheckingGuide) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (_isCheckingGuide || !_isDataLoaded || isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text(
+                'Загрузка данных...',
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
-    if (isLoading) return const Center(child: CircularProgressIndicator());
     final colorScheme = Theme.of(context).colorScheme;
 
     return AbsorbPointer(

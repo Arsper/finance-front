@@ -5,8 +5,9 @@ import 'package:my_app/Pages/RecurringPaymen/recurring_payment_form.dart';
 import 'package:my_app/api/DioClient.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
 import 'package:my_app/Pages/Transactions/components/category_search_picker.dart';
-import 'package:my_app/Pages/Guide/guide_manager.dart'; // Импортируйте ваш менеджер
-import 'package:my_app/Pages/Guide/recurring_payments_guide.dart'; // Импортируйте ваш файл с TutorialCoachMark
+import 'package:my_app/Pages/Guide/guide_manager.dart';
+import 'package:my_app/Pages/Guide/recurring_payments_guide.dart';
+import 'package:my_app/helpers/OverlayToastService.dart';
 
 class RecurringPaymentsPage extends StatefulWidget {
   const RecurringPaymentsPage({super.key});
@@ -101,6 +102,7 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
         api.getCategories(),
       ]);
 
+      if (!mounted) return;
       setState(() {
         payments = results[0];
         wallets = results[1];
@@ -109,7 +111,14 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
       });
     } catch (e) {
       debugPrint("Ошибка загрузки: $e");
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+        OverlayToastService.show(
+          context,
+          message: 'Не удалось загрузить данные',
+          isError: true,
+        );
+      }
     }
   }
 
@@ -123,19 +132,43 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
         wallets: wallets,
         categories: categories,
         onSave: (data) async {
-          bool ok = existing == null
-              ? await api.addRecurringPayment(data)
-              : await api.updateRecurringPayment(existing['idPayment'], data);
-          if (ok && context.mounted) {
-            Navigator.pop(context);
-            _loadData();
+          try {
+            bool ok = existing == null
+                ? await api.addRecurringPayment(data)
+                : await api.updateRecurringPayment(existing['idPayment'], data);
+
+            if (ok && context.mounted) {
+              Navigator.pop(context);
+              _loadData();
+              OverlayToastService.show(
+                context,
+                message: existing == null ? 'Платёж создан' : 'Платёж обновлён',
+                isError: false,
+              );
+            } else if (!ok && context.mounted) {
+              OverlayToastService.show(
+                context,
+                message: 'Ошибка при сохранении платежа',
+                isError: true,
+              );
+            }
+          } catch (e) {
+            if (context.mounted) {
+              OverlayToastService.show(
+                context,
+                message: 'Произошла ошибка связи с сервером',
+                isError: true,
+              );
+            }
           }
         },
         onDelete: () => _confirmDelete(existing!['idPayment']),
         onShowPicker: (selectedBillId, callback) {
           if (selectedBillId == null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Сначала выберите счет")),
+            OverlayToastService.show(
+              context,
+              message: 'Сначала выберите счет',
+              isError: true,
             );
             return;
           }
@@ -183,10 +216,33 @@ class _RecurringPaymentsPageState extends State<RecurringPaymentsPage> {
         ],
       ),
     );
-    if (confirm == true && await api.deleteRecurringPayment(id)) {
-      if (mounted) {
-        Navigator.pop(context);
-        _loadData();
+
+    if (confirm == true) {
+      try {
+        bool ok = await api.deleteRecurringPayment(id);
+        if (ok && mounted) {
+          Navigator.pop(context);
+          _loadData();
+          OverlayToastService.show(
+            context,
+            message: 'Операция удалена',
+            isError: false,
+          );
+        } else if (!ok && mounted) {
+          OverlayToastService.show(
+            context,
+            message: 'Не удалось удалить операцию',
+            isError: true,
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          OverlayToastService.show(
+            context,
+            message: 'Ошибка при удалении',
+            isError: true,
+          );
+        }
       }
     }
   }

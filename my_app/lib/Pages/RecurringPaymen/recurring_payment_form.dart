@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:my_app/CustomerWidgets/CustomerEdit.dart';
 import 'package:my_app/helpers/validators.dart';
+import 'package:my_app/helpers/OverlayToastService.dart';
 
 class RecurringPaymentForm extends StatefulWidget {
   final Map<String, dynamic>? existing;
@@ -401,6 +402,12 @@ class _RecurringPaymentFormState extends State<RecurringPaymentForm> {
           "periodicity": periodicityMap[selectedPeriodicityKey],
           "nextPaymentDate": dateController.text,
         });
+      } else {
+        OverlayToastService.show(
+          context,
+          message: 'Пожалуйста, корректно заполните все обязательные поля',
+          isError: true,
+        );
       }
     },
     child: const Text(

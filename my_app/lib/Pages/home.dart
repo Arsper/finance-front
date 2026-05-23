@@ -57,12 +57,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
 
     _dataSource = UserRemoteDataSource(dio: Dioclient.instance);
-    _initConnectivity();
+
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    await _initConnectivity();
     _startHealthCheckTimer();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkAndStartHomeGuide();
-    });
+    if (mounted) {
+      await _checkAndStartHomeGuide();
+    }
   }
 
   Future<void> _checkAndStartHomeGuide() async {
@@ -87,6 +92,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _guideManager.runGuide(
       showGuide: () {
         if (!mounted) return;
+
+        if (ModalRoute.of(context)?.isCurrent != true) return;
+
         _startGuide();
       },
       onSkippedOrFinished: () {

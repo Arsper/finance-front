@@ -9,6 +9,7 @@ import 'package:my_app/api/data/ratePoint.dart';
 import 'package:my_app/api/sources/remoteDataSource.dart';
 import 'package:my_app/Pages/Guide/guide_manager.dart';
 import 'package:my_app/Pages/Guide/exchange_rates_guide.dart';
+import 'package:my_app/helpers/OverlayToastService.dart';
 
 class ExchangeRatesPage extends StatefulWidget {
   final bool startGuide;
@@ -191,6 +192,13 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
       _loadHistory();
     } catch (e) {
       debugPrint("Ошибка при получении данных: $e");
+      if (mounted) {
+        OverlayToastService.show(
+          context,
+          message: 'Не удалось загрузить данные валют',
+          isError: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -224,6 +232,13 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
       }
     } catch (e) {
       debugPrint("Ошибка конвертации: $e");
+      if (mounted && !_hasPhantomData) {
+        OverlayToastService.show(
+          context,
+          message: 'Не удалось выполнить конвертацию',
+          isError: true,
+        );
+      }
     }
   }
 
@@ -257,22 +272,19 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
       final double balance = (rawBalance as num).toDouble();
 
       if (initialAmount > balance) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Недостаточно средств на кошельке ${_selectedFrom!.code}. "
-              "Не хватает: ${(initialAmount - balance).toStringAsFixed(2)}",
-            ),
-            backgroundColor: Colors.redAccent,
-          ),
+        OverlayToastService.show(
+          context,
+          message:
+              "Недостаточно средств. Не хватает: ${(initialAmount - balance).toStringAsFixed(2)} ${_selectedFrom!.code}",
+          isError: true,
         );
         return;
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("У вас нет кошелька в валюте ${_selectedFrom!.code}"),
-        ),
+      OverlayToastService.show(
+        context,
+        message: "У вас нет счета в валюте ${_selectedFrom!.code}",
+        isError: true,
       );
       return;
     }
@@ -293,17 +305,39 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
         initialAmount: initialAmount,
         exchangeRate: exchangeRate,
         onConfirm: (sourceId, targetId, amount, targetAmount) async {
-          final success = await _dataSource.transferMoney(
-            sourceBillId: sourceId,
-            targetBillId: targetId,
-            amount: amount,
-            targetAmount: targetAmount,
-            description: "Обмен ${_selectedFrom!.code} -> ${_selectedTo!.code}",
-          );
+          try {
+            final success = await _dataSource.transferMoney(
+              sourceBillId: sourceId,
+              targetBillId: targetId,
+              amount: amount,
+              targetAmount: targetAmount,
+              description:
+                  "Обмен ${_selectedFrom!.code} -> ${_selectedTo!.code}",
+            );
 
-          if (success && context.mounted) {
-            Navigator.pop(context);
-            _loadInitialData();
+            if (success && context.mounted) {
+              Navigator.pop(context);
+              _loadInitialData();
+              OverlayToastService.show(
+                context,
+                message: 'Обмен успешно выполнен',
+                isError: false,
+              );
+            } else if (!success && context.mounted) {
+              OverlayToastService.show(
+                context,
+                message: 'Не удалось совершить перевод',
+                isError: true,
+              );
+            }
+          } catch (e) {
+            if (context.mounted) {
+              OverlayToastService.show(
+                context,
+                message: 'Ошибка соединения с сервером',
+                isError: true,
+              );
+            }
           }
         },
       ),
@@ -314,17 +348,28 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
     if (_hasPhantomData || _selectedFrom == null || _selectedTo == null) return;
     setState(() => _isGraphLoading = true);
 
-    final points = await _dataSource.getExchangeHistory(
-      fromId: _selectedFrom!.idCurrencies,
-      toId: _selectedTo!.idCurrencies,
-      period: _selectedPeriod,
-    );
+    try {
+      final points = await _dataSource.getExchangeHistory(
+        fromId: _selectedFrom!.idCurrencies,
+        toId: _selectedTo!.idCurrencies,
+        period: _selectedPeriod,
+      );
 
-    if (mounted && !_hasPhantomData) {
-      setState(() {
-        _historyPoints = points;
-        _isGraphLoading = false;
-      });
+      if (mounted && !_hasPhantomData) {
+        setState(() {
+          _historyPoints = points;
+          _isGraphLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted && !_hasPhantomData) {
+        setState(() => _isGraphLoading = false);
+        OverlayToastService.show(
+          context,
+          message: 'Не удалось загрузить график истории',
+          isError: true,
+        );
+      }
     }
   }
 

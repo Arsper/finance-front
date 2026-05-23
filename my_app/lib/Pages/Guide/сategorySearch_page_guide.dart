@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:my_app/Pages/Guide/guide_manager.dart';
 import 'package:tutorial_coach_mark/tutorial_coach_mark.dart';
 
 class CategorySearchPickerGuide {
@@ -119,7 +120,7 @@ class CategorySearchPickerGuide {
           TargetContent(
             align: ContentAlign.custom,
             customPosition: CustomTargetContentPosition(
-              top: screenSize.height * 0.5,
+              top: screenSize.height * 0.6,
             ),
             builder: (context, controller) => buildGuideCard(
               title: "Тип категорий",
@@ -220,7 +221,7 @@ class CategorySearchPickerGuide {
     return targets;
   }
 
-  static void show({
+  static Future<void> show({
     required BuildContext context,
     required GlobalKey searchKey,
     required GlobalKey filterChipsKey,
@@ -230,7 +231,20 @@ class CategorySearchPickerGuide {
     required GlobalKey addFabKey,
     required VoidCallback onFinish,
     required VoidCallback onSkipAll,
-  }) {
+  }) async {
+    final guideManager = GuideManager();
+    final skipAll = await guideManager.shouldSkipAllGuides();
+
+    if (!context.mounted) {
+      onFinish();
+      return;
+    }
+
+    if (skipAll) {
+      onFinish();
+      return;
+    }
+
     late TutorialCoachMark tutorial;
 
     final targets = _createTargets(

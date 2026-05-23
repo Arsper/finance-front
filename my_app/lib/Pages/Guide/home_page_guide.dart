@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:my_app/Pages/Guide/guide_manager.dart';
 import 'package:tutorial_coach_mark/tutorial_coach_mark.dart';
 
 class HomePageGuide {
@@ -157,9 +158,7 @@ class HomePageGuide {
           TargetContent(
             align: ContentAlign.custom,
             customPosition: CustomTargetContentPosition(
-              top:
-                  screenSize.height *
-                  0.3,
+              top: screenSize.height * 0.3,
             ),
             builder: (context, controller) => buildGuideCard(
               title: "Навигация",
@@ -175,7 +174,7 @@ class HomePageGuide {
     return targets;
   }
 
-  static void show({
+  static Future<void> show({
     required BuildContext context,
     required GlobalKey networkStatusKey,
     required GlobalKey themeMenuKey,
@@ -183,7 +182,19 @@ class HomePageGuide {
     required GlobalKey bottomNavKey,
     required VoidCallback onFinish,
     required VoidCallback onSkipAll,
-  }) {
+  }) async {
+    final guideManager = GuideManager();
+    final skipAll = await guideManager.shouldSkipAllGuides();
+
+    if (!context.mounted) {
+      onFinish();
+      return;
+    }
+
+    if (skipAll) {
+      onFinish();
+      return;
+    }
     late TutorialCoachMark tutorial;
 
     final targets = _createTargets(

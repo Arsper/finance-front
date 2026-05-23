@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:my_app/Pages/Guide/guide_manager.dart';
 import 'package:tutorial_coach_mark/tutorial_coach_mark.dart';
 
 class TransactionsPageGuide {
@@ -209,7 +210,7 @@ class TransactionsPageGuide {
     return targets;
   }
 
-  static void show({
+  static Future<void> show({
     required BuildContext context,
     required GlobalKey appBarTitleKey,
     required GlobalKey statsIconKey,
@@ -219,7 +220,19 @@ class TransactionsPageGuide {
     required GlobalKey fabKey,
     required VoidCallback onFinish,
     required VoidCallback onSkipAll,
-  }) {
+  }) async {
+    final guideManager = GuideManager();
+    final skipAll = await guideManager.shouldSkipAllGuides();
+
+    if (!context.mounted) {
+      onFinish();
+      return;
+    }
+
+    if (skipAll) {
+      onFinish();
+      return;
+    }
     late TutorialCoachMark tutorial;
 
     final targets = _createTargets(
